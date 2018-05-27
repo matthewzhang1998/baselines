@@ -1,4 +1,5 @@
 import numpy as np
+from gym_program.envs.program_env import token_unmap
 
 
 class RingBuffer(object):
@@ -81,3 +82,53 @@ class Memory(object):
     @property
     def nb_entries(self):
         return len(self.observations0)
+    
+class HierMemory(): #overrides memory class
+    def __init__(self, tokens, *args):
+        self.memory = {}
+        for token in tokens:
+            assert isinstance(token, str)
+            self.memory[token] = [Memory(*args), 0]
+        
+    def append(self, obs0, action, reward, obs1, terminal1, training=True):
+        token, obs0 = obs0
+        token = token_unmap(token)
+        _, obs1 = obs1
+        assert token in self.memory
+        self.memory[token][0].append(obs0, action, reward, obs1, terminal1, training=training)
+        self.memory[token][1]+=1
+        
+    def sample(self, batch_size):
+        # Draw such that we always have a proceeding element.
+        sample_idxs = np.random.random_integers(self.nb_entries - 2, size=batch_size)
+        
+        samples = {}
+        
+        idx_right = 0
+        for token in self.memory:
+            idx_left = idx_right
+            idx_right += self.memory[token][1]
+            batch_idxs = np.where(np.logical_and(sample_idxs>=idx_left, sample_idxs<idx_right))
+            
+            obs0_batch = self.observations0.get_batch(batch_idxs)
+            obs1_batch = self.observations1.get_batch(batch_idxs)
+            action_batch = self.actions.get_batch(batch_idxs)
+            reward_batch = self.rewards.get_batch(batch_idxs)
+            terminal1_batch = self.terminals1.get_batch(batch_idxs)
+    
+            result = {
+                'obs0': array_min2d(obs0_batch),
+                'obs1': array_min2d(obs1_batch),
+                'rewards': array_min2d(reward_batch),
+                'actions': array_min2d(action_batch),
+                'terminals1': array_min2d(terminal1_batch),
+            }
+            samples[token] = result
+        return samples
+        
+    @property
+    def nb_entries(self):
+        nb_entries = 0
+        for token in self.memory:
+            nb_entries += self.memory[token][1]
+        return nb_entries

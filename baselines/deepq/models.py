@@ -89,3 +89,5 @@ def cnn_to_mlp(convs, hiddens, dueling=False, layer_norm=False):
 
     return lambda *args, **kwargs: _cnn_to_mlp(convs, hiddens, dueling, layer_norm=layer_norm, *args, **kwargs)
 
+def hier_mlp(*args):
+    

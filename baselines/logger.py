@@ -347,13 +347,24 @@ class Logger(object):
 
 Logger.DEFAULT = Logger.CURRENT = Logger(dir=None, output_formats=[HumanOutputFormat(sys.stdout)])
 
-def configure(dir=None, format_strs=None):
+def configure(dir=osp.dirname('/home/matthewszhang/logs/program'),
+              format_strs=None):
     if dir is None:
         dir = os.getenv('OPENAI_LOGDIR')
     if dir is None:
         dir = osp.join(tempfile.gettempdir(),
             datetime.datetime.now().strftime("openai-%Y-%m-%d-%H-%M-%S-%f"))
     assert isinstance(dir, str)
+    
+    iteration = 0
+    is_exist = 1
+    while(is_exist):
+        temp_dir = osp.join(dir, 'iteration-{}'.format(iteration))
+        if not osp.exists(temp_dir):
+            dir = temp_dir
+            is_exist = 0
+        iteration += 1
+    
     os.makedirs(dir, exist_ok=True)
 
     log_suffix = ''

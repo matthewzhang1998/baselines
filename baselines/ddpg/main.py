@@ -9,12 +9,16 @@ from baselines.common.misc_util import (
 )
 import baselines.ddpg.training as training
 from baselines.ddpg.models import Actor, Critic
-from baselines.ddpg.memory import Memory
+from baselines.ddpg.memory import Memory, HierMemory
 from baselines.ddpg.noise import *
 
 import gym
+from gym import spaces
+import gym_program
 import tensorflow as tf
 from mpi4py import MPI
+
+import numpy as np
 
 def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
     # Configure things.
@@ -33,10 +37,17 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
     else:
         eval_env = None
 
+    hier = env.env.hier
+    obs_shape = env.env.observation_space.spaces[1].shape if hier else env.observation_space.shape
+    
     # Parse noise_type
     action_noise = None
     param_noise = None
-    nb_actions = env.action_space.shape[-1]
+    try:
+        nb_actions = env.action_space.shape[-1]
+    except:
+        assert isinstance(env.action_space, spaces.Discrete)
+        action_shape = nb_actions = np.asarray((env.action_space.n))
     for current_noise_type in noise_type.split(','):
         current_noise_type = current_noise_type.strip()
         if current_noise_type == 'none':
@@ -54,7 +65,9 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
             raise RuntimeError('unknown noise type "{}"'.format(current_noise_type))
 
     # Configure components.
-    memory = Memory(limit=int(1e6), action_shape=env.action_space.shape, observation_shape=env.observation_space.shape)
+    if hier: memory = HierMemory(tokens = env.get_all_tokens(), limit=int(1e6), action_shape=env.action_space.shape,
+                                 observation_shape=obs_shape)
+    else: memory = Memory(limit=int(1e6), action_shape=action_shape, observation_shape=obs_shape)
     critic = Critic(layer_norm=layer_norm)
     actor = Actor(nb_actions, layer_norm=layer_norm)
 
@@ -71,7 +84,7 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
     if rank == 0:
         start_time = time.time()
     training.train(env=env, eval_env=eval_env, param_noise=param_noise,
-        action_noise=action_noise, actor=actor, critic=critic, memory=memory, **kwargs)
+        action_noise=action_noise, actor=actor, critic=critic, memory=memory, hier=hier, **kwargs)
     env.close()
     if eval_env is not None:
         eval_env.close()
@@ -82,7 +95,7 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
 def parse_args():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('--env-id', type=str, default='HalfCheetah-v1')
+    parser.add_argument('--env-id', type=str, default='NumSwap-v0')
     boolean_flag(parser, 'render-eval', default=False)
     boolean_flag(parser, 'layer-norm', default=True)
     boolean_flag(parser, 'render', default=False)

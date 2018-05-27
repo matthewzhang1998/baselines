@@ -8,6 +8,7 @@ class DummyVecEnv(VecEnv):
         self.envs = [fn() for fn in env_fns]
         env = self.envs[0]
         VecEnv.__init__(self, len(env_fns), env.observation_space, env.action_space)
+        self.hier = False
         shapes, dtypes = {}, {}
         self.keys = []
         obs_space = env.observation_space
@@ -18,6 +19,12 @@ class DummyVecEnv(VecEnv):
                 shapes[key] = box.shape
                 dtypes[key] = box.dtype
                 self.keys.append(key)
+        elif isinstance(obs_space, spaces.Tuple):
+            tokens, box = obs_space.spaces
+            self.buf_tokens = {None: np.zeros((self.num_envs,) + (tokens.n,))}
+            self.hier = True
+            self.keys = [None]
+            shapes, dtypes = {None: box.shape}, {None: box.dtype}
         else:
             box = obs_space
             assert isinstance(box, spaces.Box)
@@ -52,13 +59,25 @@ class DummyVecEnv(VecEnv):
 
     def _save_obs(self, e, obs):
         for k in self.keys:
-            if k is None:
+            if self.hier==True:
+                def one_hot(token):
+                    assert token < self.buf_tokens[None].shape[-1]
+                    one_hot = np.zeros((self.buf_tokens[None].shape[-1],))
+                    one_hot[token] = 1
+                    return one_hot
+                    
+                token, obs = obs
+                self.buf_tokens[k][e] = one_hot(token)
+                self.buf_obs[k][e] = obs
+            elif k is None:
                 self.buf_obs[k][e] = obs
             else:
                 self.buf_obs[k][e] = obs[k]
 
     def _obs_from_buf(self):
-        if self.keys==[None]:
+        if self.hier==True:
+            return (self.buf_tokens[None], self.buf_obs[None])
+        elif self.keys==[None]:
             return self.buf_obs[None]
         else:
             return self.buf_obs

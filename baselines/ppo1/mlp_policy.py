@@ -59,3 +59,5 @@ class MlpPolicy(object):
     def get_initial_state(self):
         return []
 
+class HierPolicy(MlpPolicy):
+    

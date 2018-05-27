@@ -24,6 +24,7 @@ class Actor(Model):
         super(Actor, self).__init__(name=name)
         self.nb_actions = nb_actions
         self.layer_norm = layer_norm
+        self.basename = 'actor'
 
     def __call__(self, obs, reuse=False):
         with tf.variable_scope(self.name) as scope:
@@ -44,12 +45,15 @@ class Actor(Model):
             x = tf.layers.dense(x, self.nb_actions, kernel_initializer=tf.random_uniform_initializer(minval=-3e-3, maxval=3e-3))
             x = tf.nn.tanh(x)
         return x
-
+    
+    def set_name(self, name):
+        self.name = name
 
 class Critic(Model):
     def __init__(self, name='critic', layer_norm=True):
         super(Critic, self).__init__(name=name)
         self.layer_norm = layer_norm
+        self.basename = 'critic'
 
     def __call__(self, obs, action, reuse=False):
         with tf.variable_scope(self.name) as scope:
@@ -75,3 +79,7 @@ class Critic(Model):
     def output_vars(self):
         output_vars = [var for var in self.trainable_vars if 'output' in var.name]
         return output_vars
+
+    def set_name(self, name, append=False):
+        if append: self.name = self.basename + name
+        else: self.name = name

@@ -10,12 +10,12 @@ from baselines.common.mpi_adam import MpiAdam
 import baselines.common.tf_util as U
 from baselines.common.mpi_running_mean_std import RunningMeanStd
 from mpi4py import MPI
+from gym_program.envs.program_env import token_unmap
 
 def normalize(x, stats):
     if stats is None:
         return x
     return (x - stats.mean) / stats.std
-
 
 def denormalize(x, stats):
     if stats is None:
@@ -65,7 +65,10 @@ class DDPG(object):
         gamma=0.99, tau=0.001, normalize_returns=False, enable_popart=False, normalize_observations=True,
         batch_size=128, observation_range=(-5., 5.), action_range=(-1., 1.), return_range=(-np.inf, np.inf),
         adaptive_param_noise=True, adaptive_param_noise_policy_threshold=.1,
-        critic_l2_reg=0., actor_lr=1e-4, critic_lr=1e-3, clip_norm=None, reward_scale=1.):
+        critic_l2_reg=0., actor_lr=1e-4, critic_lr=1e-3, clip_norm=None, reward_scale=1., hier=False):
+        # Hierarchical Modularity
+        self.hier = hier
+        
         # Inputs.
         self.obs0 = tf.placeholder(tf.float32, shape=(None,) + observation_shape, name='obs0')
         self.obs1 = tf.placeholder(tf.float32, shape=(None,) + observation_shape, name='obs1')
@@ -256,7 +259,7 @@ class DDPG(object):
         if self.param_noise is not None and apply_noise:
             actor_tf = self.perturbed_actor_tf
         else:
-            actor_tf = self.actor_tf
+            actor_tf = self.actor_tf                    
         feed_dict = {self.obs0: [obs]}
         if compute_Q:
             action, q = self.sess.run([actor_tf, self.critic_with_actor_tf], feed_dict=feed_dict)
@@ -376,3 +379,100 @@ class DDPG(object):
             self.sess.run(self.perturb_policy_ops, feed_dict={
                 self.param_noise_stddev: self.param_noise.current_stddev,
             })
+    
+class HierDDPG(DDPG):
+    def __init__(self, *args):
+        super(DDPG, self).__init__(*args)
+        self.tokens = [kw for kw in self.memory.memory]
+        
+    def pi(self, obs, *args):
+        token = token_unmap(obs[0])
+        obs = obs[1]
+        self.actor.set_name(token)
+        return super(DDPG, self).pi(obs, *args)
+        
+    def train(self): # totally redone as original train is not modular
+        batches_by_name = self.memory.sample(batch_size=self.batch_size)
+
+        actor_loss = 0
+        critic_loss = 0
+
+        for kw in batches_by_name:
+            batch = batches_by_name[kw]
+            
+            self.actor.set_name(kw, append=True)
+            self.target_actor.set_name(kw, append=True)
+
+            if self.normalize_returns and self.enable_popart:
+                old_mean, old_std, target_Q = self.sess.run([self.ret_rms.mean, self.ret_rms.std, self.target_Q], feed_dict={
+                    self.obs1: batch['obs1'],
+                    self.rewards: batch['rewards'],
+                    self.terminals1: batch['terminals1'].astype('float32'),
+                })
+                self.ret_rms.update(target_Q.flatten())
+                self.sess.run(self.renormalize_Q_outputs_op, feed_dict={
+                    self.old_std : np.array([old_std]),
+                    self.old_mean : np.array([old_mean]),
+                })
+    
+            else:
+                target_Q = self.sess.run(self.target_Q, feed_dict={
+                    self.obs1: batch['obs1'],
+                    self.rewards: batch['rewards'],
+                    self.terminals1: batch['terminals1'].astype('float32'),
+                })
+    
+            # Get all gradients and perform a synced update.
+            ops = [self.actor_grads, self.actor_loss, self.critic_grads, self.critic_loss]
+            actor_grads, t_actor_loss, critic_grads, t_critic_loss = self.sess.run(ops, feed_dict={
+                self.obs0: batch['obs0'],
+                self.actions: batch['actions'],
+                self.critic_target: target_Q,
+            })
+            self.actor_optimizer.update(actor_grads, stepsize=self.actor_lr)
+            self.critic_optimizer.update(critic_grads, stepsize=self.critic_lr)
+            actor_loss += t_actor_loss
+            critic_loss += t_critic_loss
+        return critic_loss, actor_loss
+        
+    def update_target_net(self):
+        for kw in self.tokens:
+            self.actor.set_name(kw, append=True)
+            self.target_actor.set_name(kw, append=True)
+            super(HierDDPG, self).update_target_net()
+
+    def store_transition(self, obs0, action, reward, obs1, terminal1):
+        reward *= self.reward_scale
+        self.memory.append(obs0, action, reward, obs1, terminal1)
+        if self.normalize_observations:
+            _, obs0 = obs0
+            self.obs_rms.update(np.array([obs0]))
+            
+    def reset(self):
+        if self.action_noise is not None:
+            self.action_noise.reset()
+        if self.param_noise is not None:
+            for kw in self.tokens:
+                self.actor.set_name(kw, append=True)
+                self.target_actor.set_name(kw, append=True)    
+                self.sess.run(self.perturb_policy_ops, feed_dict={
+                        self.param_noise_stddev: self.param_noise.current_stddev,
+                        })
+
+    def adapt_param_noise(self):
+        if self.param_noise is None:
+            return 0.
+
+        # Perturb a separate copy of the policy to adjust the scale for the next "real" perturbation.
+        batch = self.memory.sample(batch_size=self.batch_size)
+        self.sess.run(self.perturb_adaptive_policy_ops, feed_dict={
+            self.param_noise_stddev: self.param_noise.current_stddev,
+        })
+        distance = self.sess.run(self.adaptive_policy_distance, feed_dict={
+            self.obs0: batch['obs0'],
+            self.param_noise_stddev: self.param_noise.current_stddev,
+        })
+
+        mean_distance = MPI.COMM_WORLD.allreduce(distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
+        self.param_noise.adapt(mean_distance)
+        return mean_distance

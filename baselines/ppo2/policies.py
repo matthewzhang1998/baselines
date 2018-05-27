@@ -2,6 +2,9 @@ import numpy as np
 import tensorflow as tf
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
 from baselines.common.distributions import make_pdtype
+from gym_program.envs.program_env import obs_unmap
+from gym.spaces import Tuple
+
 
 def nature_cnn(unscaled_images, **conv_kwargs):
     """
@@ -120,7 +123,8 @@ class CnnPolicy(object):
 
 class MlpPolicy(object):
     def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, reuse=False): #pylint: disable=W0613
-        ob_shape = (nbatch,) + ob_space.shape
+        ob_shape = (None,) + ob_space.shape
+        self.nbatch = nbatch
         self.pdtype = make_pdtype(ac_space)
         X = tf.placeholder(tf.float32, ob_shape, name='Ob') #obs
         with tf.variable_scope("model", reuse=reuse):
@@ -133,7 +137,6 @@ class MlpPolicy(object):
             vf = fc(vf_h2, 'vf', 1)[:,0]
 
             self.pd, self.pi = self.pdtype.pdfromlatent(pi_h2, init_scale=0.01)
-
 
         a0 = self.pd.sample()
         neglogp0 = self.pd.neglogp(a0)
@@ -150,3 +153,30 @@ class MlpPolicy(object):
         self.vf = vf
         self.step = step
         self.value = value
+
+class HierPolicy(MlpPolicy):
+    def __init__(self, sess, ob_space, *args, **kwargs):
+        ob_space = ob_space.spaces[1]
+        
+        super(HierPolicy, self).__init__(sess, ob_space, *args, **kwargs)
+    
+    def hier_step(self, obs, *_args, **_kwargs):
+        a = np.zeros((self.nbatch,))
+        v = np.zeros((self.nbatch,)) 
+        neglogp = np.zeros((self.nbatch,)) 
+        obs_by_sketch = obs_unmap(obs)
+        for i in range(len(obs_by_sketch)):
+            kw, ob = obs_by_sketch[i]
+            with tf.variable_scope(kw):
+                 a[i], v[i], self.initial_state, neglogp[i] = self.step(ob, *_args, **_kwargs)
+        return a, v, self.initial_state, neglogp
+        
+    def hier_value(self, obs, *_args, **_kwargs):
+        v = np.zeros((self.nbatch,))
+        obs_by_sketch = obs_unmap(obs)
+        for i in range(len(obs_by_sketch)):
+            kw, ob = obs_by_sketch[i]
+            with tf.variable_scope(kw):
+                v[i] = self.value(ob, *_args, **_kwargs)
+        return v
+    
