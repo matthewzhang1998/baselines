@@ -9,10 +9,10 @@ Created on Sun May 13 10:19:22 2018
 from baselines.program.cmd_util import program_arg_parser
 from baselines import bench, logger
 
-def train(env_id, num_timesteps, seed, hier, cur, vis, model):
+def train(env_id, num_timesteps, seed, pol, cur, vis, model):
     from baselines.common import set_global_seeds
     from baselines.ppo2 import ppo2
-    from baselines.ppo2.policies import HierPolicy, MlpPolicy
+    from baselines.ppo2.policies import HierPolicy, HierPolicy2, MlpPolicy, RandomWalkPolicy
     import gym
     import gym_program
     import tensorflow as tf
@@ -23,6 +23,8 @@ def train(env_id, num_timesteps, seed, hier, cur, vis, model):
                             intra_op_parallelism_threads=ncpu,
                             inter_op_parallelism_threads=ncpu)
     tf.Session(config=config).__enter__()
+    
+    hier = True if pol == 'hier1' or pol == 'hier2' else False
     
     def make_env():
         set_global_seeds(seed)
@@ -39,10 +41,15 @@ def train(env_id, num_timesteps, seed, hier, cur, vis, model):
 
     set_global_seeds(seed)
 
-    if hier: policy = HierPolicy
-    else: policy = MlpPolicy
+    if pol == 'hier1': policy = HierPolicy
+    elif pol == 'hier2': policy = HierPolicy2
+    elif policy == 'mlp': policy = MlpPolicy
+    elif pol == 'random_walk':
+        pol = RandomWalkPolicy
+        pol(env)
+        return
     
-    ppo2.learn(policy=policy, env=env, hier=hier, nsteps=2048, nminibatches=32,
+    ppo2.learn(policy=policy, env=env, pol=pol, nsteps=2048, nminibatches=32,
         lam=0.95, gamma=0.99, noptepochs=10, log_interval=1,
         ent_coef=0.0,
         lr=1e-4,
@@ -53,7 +60,7 @@ def train(env_id, num_timesteps, seed, hier, cur, vis, model):
 def main():
     args = program_arg_parser().parse_args()
     logger.configure()
-    train(args.env, num_timesteps=args.num_timesteps, seed=args.seed, hier=args.hier,
+    train(args.env, num_timesteps=args.num_timesteps, seed=args.seed, pol=args.pol,
           cur=args.cur, vis=args.vis, model=args.model)
 
 if __name__ == '__main__':

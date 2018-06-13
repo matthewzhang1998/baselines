@@ -19,8 +19,9 @@ class Delog():
         self.monitor = pd.read_csv(osp.join(path, 'monitor.csv'))
         self.progress = pd.read_csv(osp.join(path, 'progress.csv'))
         
-    def disp(self):
-        eprewmean = self.progress['eprewmean']
+    def disp(self, var):
+        assert var in self.progress
+        eprewmean = self.progress[var]
         tmstep = self.progress['serial_timesteps']
         
         rew_plot = plt.gcf()
@@ -30,10 +31,10 @@ class Delog():
         plt.show()
         rew_plot.savefig(osp.join((self.path), 'reward_over_time.png'))
   
-def display(iteration):
+def display(iteration, var):
     dir = osp.dirname('/home/matthewszhang/logs/iteration-{}/'.format(iteration))
     log = Delog(dir)
-    log.disp()
+    log.disp(var)
     
 def arg_parser():
     """
@@ -48,11 +49,12 @@ def program_arg_parser():
     """
     parser = arg_parser()
     parser.add_argument('--iter', help='iteration number', type=int, default='1')
+    parser.add_argument('--var', help='variable to visualize', type=str, default='eprewmean')
     return parser    
 
 def main():
     args = program_arg_parser().parse_args()
-    display(args.iter)
+    display(args.iter, args.var)
     
 if __name__ == '__main__':
     main()

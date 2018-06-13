@@ -8,7 +8,7 @@ from baselines import logger
 from collections import deque
 from baselines.common import explained_variance
 from baselines.common.runners import AbstractEnvRunner
-from gym_program.envs.program_env import unmap
+from gym_program.envs.program_env import unmap, get_all_tokens
 
 class Model(object):
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
@@ -182,7 +182,6 @@ class HierModel(object):
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
                 nsteps, ent_coef, vf_coef, max_grad_norm, hier=False):
         sess = tf.get_default_session()
-        
         act_model = policy(sess, ob_space, ac_space, nbatch_act, 1, reuse=False)
         train_model = policy(sess, ob_space, ac_space, nbatch_train, nsteps, reuse=True)
 
@@ -322,6 +321,159 @@ class HierRunner(AbstractEnvRunner):
             mb_states, epinfos)
 # obs, returns, masks, actions, values, neglogpacs, states = runner.run()
 
+class HierModel2(object):
+    def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
+                nsteps, ent_coef, vf_coef, max_grad_norm, hier=False):
+        sess = tf.get_default_session()
+        ob_space = ob_space.spaces[1]
+        npol = len(get_all_tokens())
+        
+        act_model = policy(sess, ob_space, ac_space, nbatch_act, 1, reuse=False)
+        train_model = policy(sess, ob_space, ac_space, nbatch_train, nsteps, reuse=True)
+
+        A = train_model.pdtype.sample_placeholder([None])
+        ADV = tf.placeholder(tf.float32, [None, npol])
+        R = tf.placeholder(tf.float32, [None, npol])
+        OLDNEGLOGPAC = tf.placeholder(tf.float32, [None, npol])
+        OLDVPRED = tf.placeholder(tf.float32, [None, npol])
+        LR = tf.placeholder(tf.float32, [])
+        CLIPRANGE = tf.placeholder(tf.float32, [])
+        POL_MASKS = tf.placeholder(tf.float32, [None, npol])
+
+        neglogpac_pall = train_model.pd.neglogp(A)
+        #only take policy of interest
+        neglogpac = tf.multiply(POL_MASKS, neglogpac_pall)
+        
+        entropy = tf.reduce_mean(train_model.pd.entropy())
+
+        vpred = train_model.vf
+        vpredclipped = OLDVPRED + tf.clip_by_value(train_model.vf - OLDVPRED, - CLIPRANGE, CLIPRANGE)
+        vf_losses1 = tf.square(vpred - R)
+        vf_losses2 = tf.square(vpredclipped - R)
+        vf_loss = .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
+        ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
+        pg_losses = -ADV * ratio
+        pg_losses2 = -ADV * tf.clip_by_value(ratio, 1.0 - CLIPRANGE, 1.0 + CLIPRANGE)
+        pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
+        approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
+        clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
+        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
+        with tf.variable_scope('model'):
+            params = tf.trainable_variables()
+        
+        grads = tf.gradients(loss, params)
+        if max_grad_norm is not None:
+            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
+        grads = list(zip(grads, params))
+        trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+        _train = trainer.apply_gradients(grads)
+
+        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
+            tokens, obs = obs
+            actions_train = np.repeat(actions[:,np.newaxis], npol, -1)
+            nlp_train =  np.repeat(neglogpacs[:,np.newaxis], npol, -1)
+            vtrain =  np.repeat(values[:,np.newaxis], npol, -1)
+            rtrain =  np.repeat(returns[:,np.newaxis], npol, -1)
+            
+            advs = returns - values
+            advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+            adtrain = np.repeat(advs[:,np.newaxis], npol, -1)
+            td_map = {train_model.X:obs, train_model.mask: tokens, A:actions_train, ADV:adtrain, R:rtrain, LR:lr,
+                    CLIPRANGE:cliprange, OLDNEGLOGPAC:nlp_train, OLDVPRED:vtrain, POL_MASKS: tokens}
+            if states is not None:
+                td_map[train_model.S] = states
+                td_map[train_model.M] = masks
+            return sess.run(
+                [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
+                td_map
+            )[:-1]
+        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
+
+        def save(save_path):
+            ps = sess.run(params)
+            joblib.dump(ps, save_path)
+
+        def load(load_path):
+            loaded_params = joblib.load(load_path)
+            restores = []
+            for p, loaded_p in zip(params, loaded_params):
+                restores.append(p.assign(loaded_p))
+            sess.run(restores)
+            # If you want to load weights, also save/load observation scaling inside VecNormalize
+
+        self.train = train
+        self.train_model = train_model
+        self.act_model = act_model
+        self.step = act_model.step
+        self.value = act_model.value
+        self.initial_state = act_model.initial_state
+        self.save = save
+        self.load = load
+        tf.global_variables_initializer().run(session=sess) #pylint: disable=E1101
+
+class HierRunner2(AbstractEnvRunner):
+    def __init__(self, *, env, model, nsteps, gamma, lam, hier=True):
+        self.env = env
+        tokens, box = env.venv.observation_space.spaces
+        self.model = model
+        nenv = env.num_envs
+        self.tokens = np.zeros((nenv,) + (tokens.n,), dtype = np.int32)
+        self.batch_ob_shape = (nenv*nsteps,) + box.shape # what's the use of this?
+        self.obs = np.zeros((nenv,) + box.shape, dtype=model.train_model.X.dtype.name)
+        (tokens, self.obs[:]) = env.reset()
+        self.nsteps = nsteps
+        self.states = model.initial_state
+        self.dones = [False for _ in range(nenv)]
+        self.hier = hier
+        self.gamma = gamma
+        self.lam = lam
+    
+    def run(self):
+        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [],[],[],[],[],[]
+        mb_tokens = []
+        mb_states = self.states
+        epinfos = []
+        for _ in range(self.nsteps):
+            actions, values, self.states, neglogpacs = self.model.step((self.tokens, self.obs), self.states, self.dones)
+            mb_tokens.append(self.tokens.copy())
+            mb_obs.append(self.obs.copy())
+            mb_actions.append(actions)
+            mb_values.append(values)
+            mb_neglogpacs.append(neglogpacs)
+            mb_dones.append(self.dones)
+            (self.tokens[:], self.obs[:]), rewards, self.dones, infos = self.env.step(actions)
+            
+            for info in infos:
+                maybeepinfo = info.get('episode')
+                if maybeepinfo: epinfos.append(maybeepinfo)
+            mb_rewards.append(rewards)
+        #batch of steps to batch of rollouts
+        mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
+        mb_tokens = np.asarray(mb_tokens, dtype = self.tokens.dtype)
+        mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
+        mb_actions = np.asarray(mb_actions)
+        mb_values = np.asarray(mb_values, dtype=np.float32)
+        mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)
+        mb_dones = np.asarray(mb_dones, dtype=np.bool)
+        last_values = self.model.value((self.tokens, self.obs), self.states, self.dones)
+        #discount/bootstrap off value fn
+        mb_returns = np.zeros_like(mb_rewards)
+        mb_advs = np.zeros_like(mb_rewards)
+        lastgaelam = 0
+        for t in reversed(range(self.nsteps)):
+            if t == self.nsteps - 1:
+                nextnonterminal = 1.0 - self.dones
+                nextvalues = last_values
+            else:
+                nextnonterminal = 1.0 - mb_dones[t+1]
+                nextvalues = mb_values[t+1]
+            delta = mb_rewards[t] + self.gamma * nextvalues * nextnonterminal - mb_values[t]
+            mb_advs[t] = lastgaelam = delta + self.gamma * self.lam * nextnonterminal * lastgaelam
+        mb_returns = mb_advs + mb_values
+        mb_obs = tuple(map(sf01, (mb_tokens, mb_obs)))
+        return (mb_obs, *map(sf01, (mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
+            mb_states, epinfos)
+# obs, returns, masks, actions, values, neglogpacs, states = runner.run()
     
 def sf01(arr):
     """
@@ -338,7 +490,7 @@ def constfn(val):
 def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
             vf_coef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
             log_interval=10, nminibatches=4, noptepochs=4, cliprange=0.2,
-            save_interval=0, load_path=None, hier=False):
+            save_interval=0, load_path=None, pol=None):
 
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
@@ -351,11 +503,17 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
     ac_space = env.action_space
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
-    if hier:
+    
+    hier = True if pol=='hier1' or pol=='hier2' else False
+    
+    if pol=='hier1':
         make_model = lambda : HierModel(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
                     max_grad_norm=max_grad_norm)
-        
+    elif pol=='hier2':
+        make_model = lambda : HierModel2(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
+                    nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
+                    max_grad_norm=max_grad_norm)
     else:
         make_model = lambda : Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=nenvs, nbatch_train=nbatch_train,
                     nsteps=nsteps, ent_coef=ent_coef, vf_coef=vf_coef,
@@ -367,15 +525,16 @@ def learn(*, policy, env, nsteps, total_timesteps, ent_coef, lr,
     model = make_model()
     if load_path is not None:
         model.load(load_path)
-        
-    if hier:
+    
+    if pol=='hier1':
         runner = HierRunner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
+    elif pol=='hier2':
+        runner = HierRunner2(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
     else:
         runner = Runner(env=env, model=model, nsteps=nsteps, gamma=gamma, lam=lam)
 
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
-
     nupdates = total_timesteps//nbatch
     for update in range(1, nupdates+1):
         assert nbatch % nminibatches == 0

@@ -1,9 +1,11 @@
 import numpy as np
 import tensorflow as tf
+from baselines import logger
 from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
 from baselines.common.distributions import make_pdtype
-from gym_program.envs.program_env import obs_unmap
-from gym.spaces import Tuple
+from baselines.program.distributions import make_pdtype_hier
+from gym_program.envs.program_env import obs_unmap, get_all_tokens
+from gym.spaces import Tuple, Discrete
 
 
 def nature_cnn(unscaled_images, **conv_kwargs):
@@ -122,7 +124,7 @@ class CnnPolicy(object):
         self.value = value
 
 class MlpPolicy(object):
-    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, reuse=False): #pylint: disable=W0613
+    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, reuse=False, noptions=1): #pylint: disable=W0613
         ob_shape = (None,) + ob_space.shape
         self.nbatch = nbatch
         self.pdtype = make_pdtype(ac_space)
@@ -134,10 +136,9 @@ class MlpPolicy(object):
             pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=64, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(flatten(X), 'vf_fc1', nh=64, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=64, init_scale=np.sqrt(2)))
-            vf = fc(vf_h2, 'vf', 1)[:,0]
+            vf = fc(vf_h2, 'vf', noptions)[:,0]
 
             self.pd, self.pi = self.pdtype.pdfromlatent(pi_h2, init_scale=0.01)
-
         a0 = self.pd.sample()
         neglogp0 = self.pd.neglogp(a0)
         self.initial_state = None
@@ -157,7 +158,6 @@ class MlpPolicy(object):
 class HierPolicy(MlpPolicy):
     def __init__(self, sess, ob_space, *args, **kwargs):
         ob_space = ob_space.spaces[1]
-        
         super(HierPolicy, self).__init__(sess, ob_space, *args, **kwargs)
     
     def hier_step(self, obs, *_args, **_kwargs):
@@ -180,3 +180,81 @@ class HierPolicy(MlpPolicy):
                 v[i] = self.value(ob, *_args, **_kwargs)
         return v
     
+class HierPolicy2(object):
+    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, reuse=False, noptions=1): #pylint: disable=W0613
+        self.tokens = get_all_tokens()
+        ob_shape = (None,) + ob_space.shape
+        self.nbatch = nbatch
+        self.pdtype = make_pdtype_hier(ac_space, len(self.tokens))
+        X = tf.placeholder(tf.float32, ob_shape, name='Ob') #obs
+        mask = tf.placeholder(tf.float32, (None, len(self.tokens)))
+        with tf.variable_scope("model", reuse=reuse):
+            activ = tf.tanh
+            flatten = tf.layers.flatten
+            pi_h1 = activ(fc(flatten(X), 'pi_fc1', nh=128, init_scale=np.sqrt(2)))
+            pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=128, init_scale=np.sqrt(2)))
+            vf_h1 = activ(fc(flatten(X), 'vf_fc1', nh=64, init_scale=np.sqrt(2)))
+            vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=64, init_scale=np.sqrt(2)))
+            vf = fc(vf_h2, 'vf', len(self.tokens))
+
+            self.pd, self.pi = self.pdtype.pdfromlatent(pi_h2, init_scale=0.01)
+        a = self.pd.sample() # vector of length noptions
+        a_cast = tf.cast(a, tf.float32)
+        neglogp = self.pd.neglogp(a) # vector of length noptions
+        
+        a0 = tf.cast(tf.reduce_sum(tf.multiply(a_cast, mask), axis=-1), tf.int64)
+        neglogp0 = tf.reduce_sum(tf.multiply(neglogp, mask), axis=-1)
+        vf0 = tf.reduce_sum(tf.multiply(vf, mask), axis=-1)
+        self.initial_state = None
+
+        def step(ob, *_args, **_kwargs):
+            opmask, ob = ob
+            a, v, neglogp = sess.run([a0, vf0, neglogp0], {X:ob, mask:opmask})
+            return a, v, self.initial_state, neglogp
+
+        def value(ob, *_args, **_kwargs):
+            opmask, ob = ob
+            return sess.run(vf0, {X:ob, mask:opmask})
+
+        self.X = X
+        self.mask = mask
+        self.vf = vf
+        self.step = step
+        self.value = value
+        
+BATCH = 2048
+        
+def RandomWalkPolicy(env):
+    avg_rew=0
+    avg_tstep=0
+    rew=0
+    tstep=0
+    n_iterations=0     
+    env.reset()
+    assert isinstance(env.action_space, Discrete)
+    nac = env.action_space.n
+    for iteration in range(1000000):
+        action=[np.random.randint(0, nac)]
+        _, reward, done, infos = env.step(action)
+        rew+=reward
+        tstep+=1
+        
+        if done:
+            n_iterations+=1
+            avg_rew=avg_rew*(n_iterations - 1)/(n_iterations)
+            avg_rew+=rew/n_iterations
+            rew=0
+            avg_tstep=avg_tstep*(n_iterations - 1)/n_iterations
+            avg_tstep+=tstep/n_iterations
+            tstep=0
+            
+        if iteration % BATCH == 0:
+            logger.logkv('it', iteration)
+            logger.logkv('eprewmean', avg_rew)
+            logger.logkv('eplenmean', avg_tstep)
+            logger.dumpkvs()
+            
+    env.close()
+            
+        
+        

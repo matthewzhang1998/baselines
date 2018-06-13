@@ -40,9 +40,10 @@ def program_arg_parser():
     parser = arg_parser()
     parser.add_argument('--env', help='environment ID', type=str, default='NumSwap-v0')
     parser.add_argument('--seed', help='RNG seed', type=int, default=0)
-    parser.add_argument('--num-timesteps', type=int, default=int(1e6))
-    parser.add_argument('--hier', help='hierarchical policy', type=str, default=False)
+    parser.add_argument('--num-timesteps', type=int, default=int(1e7))
+    parser.add_argument('--recurrent', help='recurrency', type=str, default=False)
+    parser.add_argument('--pol', help='type of policy', type=str, default='hier2')
     parser.add_argument('--cur', help='curiosity model', type=bool, default=False)
     parser.add_argument('--vis', help='visualizations', type=bool, default=False)
-    parser.add_argument('--model', help='encoding model', type=str, default='MLP')
+    parser.add_argument('--model', help='encoding model', type=str, default='mlp')
     return parser
