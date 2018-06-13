@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Jun 11 10:55:05 2018
+
+@author: matthewszhang
+"""
+import tensorflow as tf
+import numpy as np
+from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
+
+def nature_cnn(unscaled_images, **conv_kwargs):
+    """
+    CNN from Nature paper.
+    """
+    scaled_images = tf.cast(unscaled_images, tf.float32) / 255.
+    activ = tf.nn.relu
+    h = activ(conv(scaled_images, 'c1', nf=32, rf=8, stride=4, init_scale=np.sqrt(2),
+                   **conv_kwargs))
+    h2 = activ(conv(h, 'c2', nf=64, rf=4, stride=2, init_scale=np.sqrt(2), **conv_kwargs))
+    h3 = activ(conv(h2, 'c3', nf=64, rf=3, stride=1, init_scale=np.sqrt(2), **conv_kwargs))
+    h3 = conv_to_fc(h3)
+    return activ(fc(h3, 'fc1', nh=512, init_scale=np.sqrt(2)))
+
+class MlpPolicy():
+    def __init__(self, obspace, nh=64, layers=2, activ=tf.nn.relu, reuse=False):
+        ob_shape = (None,) + obspace.shape
+        self.X = tf.placeholder(dtype=tf.float32, shape=ob_shape, name='Ob')
+        with tf.variable_scope("model", reuse=reuse):
+            flatten = tf.layers.flatten
+            embed = flatten(self.X)
+            for i in range(layers):
+                embed = activ(fc(embed, 'pi_fc'+str(i), nh=nh, init_scale=np.sqrt(2)))
+            self.tout = embed
+            
+class CnnPolicy():
+    def __init__(self, obspace, nh=64, layers=0, activ=tf.nn.relu, reuse=False, **conv_kwargs):
+        nh, nw, nc = obspace.shape
+        ob_shape = (None, nh, nw, nc)
+        self.X = tf.placeholder(tf.uint8, ob_shape) #obs
+        with tf.variable_scope("model", reuse=reuse):
+            embed = nature_cnn(self.X, **conv_kwargs)
+            for i in range(layers):
+                embed = activ(fc(embed, 'pi_fc'+str(i), nh=nh, init_scale=np.sqrt(2)))
+                self.tout = embed
