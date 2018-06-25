@@ -47,3 +47,44 @@ def program_arg_parser():
     parser.add_argument('--vis', help='visualizations', type=bool, default=False)
     parser.add_argument('--model', help='encoding model', type=str, default='mlp')
     return parser
+
+def feudal_arg_parser():
+    parser = arg_parser()
+    # simulation parameters
+    parser.add_argument('--env', help='environment ID', type=str, default='NumSwap-v0')
+    parser.add_argument('--seed', help='RNG seed', type=int, default=0)
+    parser.add_argument('--tsteps', help='total simulation size', type=int, default=int(1e7))
+    parser.add_argument('--nsteps', help='batch size', type=int, default=int(1e4))
+    
+    # feudal parameters
+    parser.add_argument('--encoef', help='entropy coefficient', type=float, default=0.0)
+    parser.add_argument('--lr', help='learning rate', type=float, default=1e-4)
+    parser.add_argument('--cliphigh', help='cliprange max', type=float, default=0.2)
+    parser.add_argument('--clipinc', help='cliprange hierarchical divisor', type=float, default=0.5)
+    parser.add_argument('--vcoef', help='value coefficient', type=float, default=0.5)
+    parser.add_argument('--mgn', help='max grad norm', type=float, default=0.5)
+    parser.add_argument('--gmax', help='gamma max', type=float, default=1e-2)
+    parser.add_argument('--ginc', help='gamma hierarchical divisor', type=float, default=0.25)
+    parser.add_argument('--lam', help='lambda', type=float, default=0.95)
+    parser.add_argument('--nhier', help='number of hierarchies', type=int, default=3)
+    parser.add_argument('--nmb', help='number of minibatches', type=int, default=4)
+    parser.add_argument('--noe', help='number of opt. epochs per batch', type=int, default=10)
+    parser.add_argument('--ngmin', help='min number of goals', type=int, default=8)
+    parser.add_argument('--nginc', help='hierarchical multiplier', type=int, default=4)
+    parser.add_argument('--bmin', help='beta min', type=float, default=0)
+    parser.add_argument('--bmax', help='beta max', type=float, default=1)
+    parser.add_argument('--nhist', help='nhist lookahead per hier', type=int, default=4)
+    parser.add_argument('--stoch', help='stochasticity', type=float, default=0.2)
+    #parser.add_argument('--lambda-cur', help='curiosity weighting', type=float, default=1e-3)
+    
+    # policy parameters
+    parser.add_argument('--recurrent', help='recurrency', type=str, default=False)
+    parser.add_argument('--pol', help='type of policy', type=str, default='null')
+    parser.add_argument('--cur', help='curiosity model', type=str, default='null')
+    parser.add_argument('--vis', help='visualizations', type=bool, default=False)
+    parser.add_argument('--model', help='encoding model', type=str, default='mlp')
+    parser.add_argument('--val', help='value network', type=bool, default=False)
+    parser.add_argument('-q', '--quiet', action='store_true', help='quiet mode')
+    return parser
+
+    

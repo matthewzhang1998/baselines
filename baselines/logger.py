@@ -220,8 +220,7 @@ def dumpkvs():
     Logger.CURRENT.dumpkvs()
 
 def getkvs():
-    return Logger.CURRENT.name2val
-
+    return Logger.CURRENT.name2val    
 
 def log(*args, level=INFO):
     """
@@ -254,6 +253,11 @@ def get_dir():
     will be None if there is no output directory (i.e., if you didn't call start)
     """
     return Logger.CURRENT.get_dir()
+
+def logvar(vardict, dir=os.getcwd(), name='vars.json'):
+    p = osp.join(dir, name)
+    with open(p, "w") as file:
+         file.write(json.dumps(vardict))
 
 record_tabular = logkv
 dump_tabular = dumpkvs
@@ -347,7 +351,7 @@ class Logger(object):
 
 Logger.DEFAULT = Logger.CURRENT = Logger(dir=None, output_formats=[HumanOutputFormat(sys.stdout)])
 
-def configure(dir=osp.dirname('/home/matthewszhang/logs/program'),
+def configure(dir=os.getcwd(),
               format_strs=None):
     if dir is None:
         dir = os.getenv('OPENAI_LOGDIR')
@@ -359,12 +363,13 @@ def configure(dir=osp.dirname('/home/matthewszhang/logs/program'),
     iteration = 0
     is_exist = 1
     while(is_exist):
-        temp_dir = osp.join(dir, 'iteration-{}'.format(iteration))
+        temp_dir = osp.join(dir, 'test/iteration-{}'.format(iteration))
         if not osp.exists(temp_dir):
             dir = temp_dir
             is_exist = 0
         iteration += 1
     
+    print(dir)
     os.makedirs(dir, exist_ok=True)
 
     log_suffix = ''
@@ -385,6 +390,7 @@ def configure(dir=osp.dirname('/home/matthewszhang/logs/program'),
 
     Logger.CURRENT = Logger(dir=dir, output_formats=output_formats)
     log('Logging to %s'%dir)
+    return dir
 
 def reset():
     if Logger.CURRENT is not Logger.DEFAULT:

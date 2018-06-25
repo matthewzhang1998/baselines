@@ -27,12 +27,12 @@ class Delog():
         rew_plot = plt.gcf()
         plt.plot(tmstep, eprewmean, 'bo--')
         plt.xlabel('timestep')
-        plt.ylabel('average reward')
+        plt.ylabel(var)
         plt.show()
         rew_plot.savefig(osp.join((self.path), 'reward_over_time.png'))
   
 def display(iteration, var):
-    dir = osp.dirname('/home/matthewszhang/logs/iteration-{}/'.format(iteration))
+    dir = osp.dirname('/home/matthewszhang/baselines/baselines/feudal/test/iteration-{}/'.format(iteration))
     log = Delog(dir)
     log.disp(var)
     

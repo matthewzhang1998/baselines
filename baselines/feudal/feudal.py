@@ -21,27 +21,37 @@ from gym import spaces
 PATH="tmp/build/graph"
 
 class FeudalNetwork(object):
+    '''
+    Feudal Agent without recurrency
+    '''
     def __init__(self, mgoal, state, pstate, mfvec, pdtype=None, nhist=4, nin=32, ngoal=16,
-                 nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1e3):
-        self.mgoal=mgoal[:,:nin]
-        self.state=state
+                 nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1e3, val=True):
+        '''
+        INPUTS:
+            mgoal - goal tensor of supervisor
+            state - observation tensor post-embedding
+            pstate - recurrent state tensor, ignored in this call
+            mfvec - 
+        '''
+        self.mgoal = mgoal[:,:nin]
+        self.state = state
         #state = tf.concat([self.mgoal, self.state], axis=-1)
-        nph=nh
-        self.manager=manager
-        self.name=name
-        self.initial_state=None
+        nph = nh # policy hidden layer size
+        self.manager = manager
+        self.name = name
+        self.initial_state = None
         nout = ngoal if manager else nh
         self.pdtype = pdtype
         
         with tf.variable_scope("level" + str(self.name)):
-            em_h2 = tf.nn.l2_normalize(activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2))))
+            em_h2 = activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2)))
             embed_goal = activ(fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2)))
             pi_h1 = activ(fc(state, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
             pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nph, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
             
-            pout = tf.multiply(embed_goal, pi_h2)
+            pout = embed_goal + pi_h2
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
             #pout = pi_h2
         
@@ -53,6 +63,9 @@ class FeudalNetwork(object):
         self.nlp = neglogpout
         self.nstate = None
         
+        A = tf.constant(np.exp(1) - np.exp(-1), dtype=tf.float32)
+        B = tf.constant(np.exp(-1)/(np.exp(-1) - np.exp(1)), dtype=tf.float32)
+        
         def bcs(state, spad, gpad, nhist):
             rew = tf.fill([nbatch], 0.0)
             for t in range(nhist):
@@ -60,14 +73,17 @@ class FeudalNetwork(object):
                 gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                rew += (tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))
+                exp = tf.exp(tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))
+                rew += exp/A + B
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
             sim = tf.reduce_sum(tf.multiply(nfv, ngv), axis=-1)
-            return sim
+            expsim = tf.exp(sim)/tf.constant(np.exp(1)-np.exp(-1),
+                         dtype=tf.float32)/A + B
+            return expsim
         
         self.vf = vout
         if self.manager:    
@@ -86,7 +102,7 @@ class FeudalNetwork(object):
 class RecurrentFeudalNetwork(object):
     def __init__(self, mgoal, state, pstate, mfvec, pdtype=None, nhist=4, nin=32, ngoal=16,
                  nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1e3,
-                 cell=tf.contrib.rnn.LSTMCell):
+                 cell=tf.contrib.rnn.LSTMCell, val=False):
         self.mgoal=mgoal[:,:nin]
         self.state=state
         self.pstate=pstate
@@ -106,10 +122,10 @@ class RecurrentFeudalNetwork(object):
             a_h1, nstate = rnn(inputs=state, state=pstate)
             c_h1 = activ(a_h1)
             pi_h2 = activ(fc(c_h1, 'pi_fc2', nh=nph, init_scale=np.sqrt(2)))
-            vf_h2 = activ(fc(c_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
-            
-            pout = tf.multiply(embed_goal, pi_h2)
+            vf_h2 = activ(fc(c_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))                
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
+
+            pout = tf.multiply(embed_goal, pi_h2)
             #pout = pi_h2
         
             self.pd, self.pi = self.pdtype.pdfromlatent(pout, init_scale=0.01)
@@ -127,13 +143,15 @@ class RecurrentFeudalNetwork(object):
                 gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                rew += (tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))
+                rew += tf.exp(tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))/ \
+                        tf.constant(np.exp(1), dtype=tf.float32)
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
             sim = tf.reduce_sum(tf.multiply(nfv, ngv), axis=-1)
+            sim = tf.exp(sim)/tf.constant(np.exp(1), dtype=tf.float32)
             return sim
         
         self.vf = vout
@@ -151,24 +169,44 @@ class RecurrentFeudalNetwork(object):
             self.traj_sim = fcs(self.mfvec, aout, nhist)
     
 class FeudalModel(object):
+    '''
+    General class for organizing feudal networks
+    Can train all networks in one sess.run call
+    '''
     def __init__(self, policy, ob_space, ac_space, nhier=2, max_grad=0.5,
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
-                 g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x,
-                 lr=1e-4, vcoef=0.5, encoef=0, nbatch_train=1e3, nh=64,
+                 g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
+                 lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
                  activ=tf.nn.relu):
-        self.sess = tf.get_default_session()
-        self.net = RecurrentFeudalNetwork if recurrent else FeudalNetwork
-        self.networks=[]
-        self.nhier=nhier
-        beta, gam, tsim, val, fvecs, nlp, nstate=[],[],[],[],[],[],[]
-        self.maxdim = ngoal(1)
-        self.lavg=0
-        self.init_goal = np.zeros(shape=(self.maxdim))
+        '''
+        INPUTS:
+           policy - encoding function for input states
+           ob_space - gym.spaces object for obs (inputs)
+           ac_space - gym.spaces object for actions (outputs)
+           max_grad - gradient clipping threshold (float)
+           nhier - number of hierarchical actions (int)
+           ngoal - size of goal output at each level (int function)
+           recurrent - use recurrent model (Boole)
+           g - gamma, discounting parameter (float function)
+           nhist - lookahead horizon at each level (int function)
+           lr - learning rate (float)
+           vcoef - value loss weighting (float)
+           encoef - entropy weighting (float)
+           nh - hidden layer size (int)
+           activ - activation function (TF activation function)
+        '''
+        
+        self.sess = tf.get_default_session() # get session
+        self.net = RecurrentFeudalNetwork if recurrent else FeudalNetwork # get single network object
+        self.recurrent=recurrent
+        self.val=val
+        self.networks=[] # network array
+        self.nhier=nhier # set hierarchy
+        beta, gam, tsim, val, fvecs, nlp, nstate=[],[],[],[],[],[],[] # hierarchically dependent parameters
+        self.maxdim = ngoal(1) # max goal dimensions for uniform input/output
+        self.init_goal = np.zeros(shape=(self.maxdim)) # 
         self.initial_state = np.zeros(shape=(nhier, nh*2))
         nfeat = ob_space.shape
-        
-        bscale = 1/(nhier - 1)
-        b = lambda x: bscale * x
         
         self.STATES=tf.placeholder(dtype=tf.float32, shape=(None, nhier, nh*2))
         self.OBS=tf.placeholder(dtype=tf.float32, shape=(None,)+nfeat)
@@ -195,8 +233,8 @@ class FeudalModel(object):
             
         for t in range(nhier-1):
             beta.append(b(t))
-            gam.append(g(nhier - t))
-            pdtype=make_pdtype(spaces.Box(low=0, high=1, shape=(ngoal(nhier-t-1),)))
+            gam.append(g(t))
+            pdtype=make_pdtype(spaces.Box(low=-1, high=1, shape=(ngoal(nhier-t-1),)))
             self.networks.append(self.net(mgoal=goal[t][:,:ngoal(nhier-t)],
                                           state=em_h1,
                                           mfvec=self.VECS[:,t,:],
@@ -207,7 +245,8 @@ class FeudalModel(object):
                                           ngoal=ngoal(nhier-t-1),
                                           nbatch=nbatch,
                                           name=nhier-t-1,
-                                          manager=True))
+                                          manager=True,
+                                          val=val))
             goal.append(tf.pad(self.networks[t].aout,
                                 tf.constant([[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
                                 mode='CONSTANT'))
@@ -218,23 +257,24 @@ class FeudalModel(object):
             
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
-            val.append(self.networks[t].vf)
             nstate.append(self.networks[t].nstate)
-            adv = self.ADV[:,t] * tsim[t]
+            adv = self.ADV[:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
             pl1 = -adv * ratio
             pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
             ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
-            vclip = self.OLDVALUES[:,t] + tf.clip_by_value(val[t]-self.OLDVALUES[:,t],
-                                  -self.CLIPRANGE[t], self.CLIPRANGE[t]) 
-            vl1 = tf.square(val[t] - self.R[:,t])
-            vl2 = tf.square(vclip - self.R[:,t])
-            vloss += .5 * tf.reduce_mean(tf.maximum(vl1, vl2))
+            if val:
+                val.append(self.networks[t].vf)
+                vclip = self.OLDVALUES[:,t] + tf.clip_by_value(val[t]-self.OLDVALUES[:,t],
+                                      -self.CLIPRANGE[t], self.CLIPRANGE[t]) 
+                vl1 = tf.square(val[t] - self.R[:,t])
+                vl2 = tf.square(vclip - self.R[:,t])
+                vloss += .5 * tf.reduce_mean(tf.maximum(vl1, vl2))
             entropy += tf.reduce_mean(self.networks[t].pd.entropy())
             
         beta.append(b(nhier-1))
-        gam.append(g(1))
+        gam.append(g(nhier-1))
         pdtype = make_pdtype(ac_space)
         self.networks.append(self.net(mgoal=goal[nhier-1],
                                       state=em_h1,
@@ -246,7 +286,8 @@ class FeudalModel(object):
                                       pdtype=pdtype,
                                       manager=False,
                                       nhist=nhist(1),
-                                      nbatch=nbatch))
+                                      nbatch=nbatch,
+                                      val=val))
         nlp.append(self.networks[nhier-1].pd.neglogp(self.OLDACTIONS))
         nstate.append(self.networks[nhier-1].nstate)
         adv = self.ADV[:,nhier-1]
@@ -254,25 +295,36 @@ class FeudalModel(object):
         pl1 = -adv * ratio
         pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[nhier-1], 1.0 + self.CLIPRANGE[nhier-1])
         ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
-            
-        val.append(self.networks[nhier-1].vf)
-        vclip = self.OLDVALUES[:,nhier-1]+tf.clip_by_value(val[nhier-1]-
-                              self.OLDVALUES[:,nhier-1], -self.CLIPRANGE[nhier-1], self.CLIPRANGE[nhier-1]) 
-        vf_losses1 = tf.square(val[nhier-1] - self.R[:,nhier-1])
-        vf_losses2 = tf.square(vclip - self.R[:,nhier-1])
-        vloss += .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
+        
+        if val:
+            val.append(self.networks[nhier-1].vf)
+            vclip = self.OLDVALUES[:,nhier-1]+tf.clip_by_value(val[nhier-1]-
+                                  self.OLDVALUES[:,nhier-1], -self.CLIPRANGE[nhier-1], self.CLIPRANGE[nhier-1]) 
+            vf_losses1 = tf.square(val[nhier-1] - self.R[:,nhier-1])
+            vf_losses2 = tf.square(vclip - self.R[:,nhier-1])
+            vloss += .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
         self.approxkl = .5 * tf.reduce_mean(tf.square(nlp[nhier-1] - self.OLDNLPS[:,nhier-1]))
         self.clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), self.CLIPRANGE[nhier-1])))
         
         entropy += tf.reduce_mean(self.networks[nhier-1].pd.entropy())
         
         self.pi=self.networks[nhier-1].pi
-        self.fvecs=tf.transpose(tf.stack(fvecs),[1,0,2])
-        self.nstate=tf.stack(nstate)
+        if nhier > 1:
+            self.fvecs=tf.transpose(tf.stack(fvecs),[1,0,2])   
+            self.goals = tf.transpose(tf.stack(goal[1:]),[1,0,2])
+        else:
+            self.fvecs=tf.zeros(shape=[nbatch, nhier-1, self.maxdim])
+            self.goals=tf.zeros(shape=[nbatch, nhier-1, self.maxdim])
+        if self.recurrent:
+            self.nstate=tf.stack(nstate)
+        else:
+            self.nstate=tf.zeros(shape=(nhier, nh*2))
         self.inr = tf.transpose(tf.stack(inr))
         self.nlp = tf.transpose(tf.stack(nlp))
-        self.goals = tf.transpose(tf.stack(goal[1:]),[1,0,2])
-        self.vf = tf.transpose(tf.stack(val))
+        if val:
+            self.vf = tf.transpose(tf.stack(val))
+        else:
+            self.vf = tf.zeros(nbatch, nhier)
         self.vloss = vloss[0]
         self.beta = np.asarray(beta)
         self.gam = np.asarray(gam)
@@ -289,17 +341,6 @@ class FeudalModel(object):
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad)
         grads = list(zip(grads, params))
         self._trainer = optimizer.apply_gradients(grads)
-#        if max_grad is not None:
-#            gradients = optimizer.compute_gradients(self.loss)
-#            def ClipIfNotNone(grad):
-#                if grad is None:
-#                    return grad
-#                return tf.clip_by_value(grad, -1, 1)
-#            clipped_gradients = [(ClipIfNotNone(grad), var) for grad, var in gradients]
-#            self._trainer = optimizer.apply_gradients(clipped_gradients)
-#        else:
-#            self._trainer = optimizer.minimize(self.loss)
-        
         tf.global_variables_initializer().run(session=self.sess)
         
     def train(self, lr,
@@ -335,8 +376,8 @@ class FeudalModel(object):
                               self.clipfrac,
                               self._trainer], feed)[:-1]
     
-    def av(self, ar, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvecs, vvfs, vnlps =[],[],[],[]
+    def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
+        vadvs, vvecs, vvfs, vnlps, vinr =[],[],[],[],[]
         for (ob, act, rew, done, goal,state) in zip(obs,acts,rews,dones,goals,states):
             nbatch=ob.shape[0]
             trews=np.reshape(np.repeat(rew, self.nhier, -1),(nbatch, self.nhier))
@@ -351,7 +392,8 @@ class FeudalModel(object):
             vvecs.append(mbfvecs)
             vvfs.append(mbvfs)
             vnlps.append(mbnlps)
-        return vadvs, vvecs, vvfs, vnlps
+            vinr.append(inr)
+        return vadvs, vvecs, vvfs, vnlps, vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -457,7 +499,7 @@ def constfn(val):
         return val
     return f
 
-def mcret(ar, actions, rews, dones, vals, lam=0.95, gam=0.99):
+def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     mb_returns = np.zeros_like(rews)
     mb_advs = np.zeros_like(rews)
     lastgaelam = 0
@@ -473,30 +515,45 @@ def mcret(ar, actions, rews, dones, vals, lam=0.95, gam=0.99):
         delta = rews[t] + gam * nextvalues * nextnonterminal - vals[t]
         mb_advs[t] = lastgaelam = delta + gam * lam * nextnonterminal * lastgaelam
         
-        ar[actions[t]] += rews[t,-1]
     mb_returns = mb_advs + vals
     return mb_returns, mb_advs
     
-def learn(*, policy, env, nsteps, total_timesteps, encoef, lr, cliprange=0.2,
-            vcoef=0.5,  max_grad_norm=0.5, gamma=0.99, lam=0.95,
-            log_interval=10, nminibatches=4, noptepochs=1,
-            save_interval=0, load_path=None, nhier=3, recurrent=False):
-
+def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
+          mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
+          recurrent, val, save_interval=0, log_interval=1, load_path=None):
+    
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
-    if isinstance(cliprange, float): cliprange = constfn(cliprange)
-    else: assert callable(cliprange)
-    total_timesteps = int(total_timesteps)
+    if isinstance(cliphigh, float):
+        arr = np.asarray([cliphigh*(clipinc**i) for i in range(nhier)], dtype=np.float32) 
+        cliprange = constfn(arr)
+    else: 
+        def cr(t):
+            arr = [cliphigh(t)*(clipinc(t)**i) for i in range(nhier)]
+            return np.asarray(arr, dtype=np.float32)
+        cliprange = cr    
 
     nenvs = env.num_envs
     ob_space = env.observation_space
     ac_space = env.action_space
     nbatch = nenvs * nsteps
-    nbatch_train = nbatch // nminibatches
+    nbatch_train = nbatch // nmb
     
-    make_model = lambda : FeudalModel(policy, ob_space, ac_space, nhier=nhier, encoef=encoef,
-                                      vcoef=vcoef, recurrent=recurrent,
-                                      nbatch_train=nbatch_train)
+    def ng(k):
+        return ngmin * (nginc **(nhier - k))
+    def gamma(k):
+        return 1 - (gmax * (ginc ** (nhier - 1 - k)))
+    def nh(k):
+        return nhist ** (k)
+    def beta(k):
+        if nhier==1:
+            return bmin            
+        else:
+            return bmin + (bmax - bmin) * k / (nhier - 1)
+    
+    make_model = lambda : FeudalModel(policy, ob_space, ac_space, max_grad=mgn,
+          ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
+          val=val)
     if save_interval and logger.get_dir():
         import cloudpickle
         with open(osp.join(logger.get_dir(), 'make_model.pkl'), 'wb') as fh:
@@ -508,24 +565,33 @@ def learn(*, policy, env, nsteps, total_timesteps, encoef, lr, cliprange=0.2,
     runner = FeudalRunner(env=env, model=model, nsteps=nsteps)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
-    nupdates = total_timesteps//nbatch
+    nupdates = tsteps//nbatch
+    
+    if not val:
+        vre = np.zeros((nhier), dtype=np.float32)
+        val_temp = 0.9
+    
     for update in range(1, nupdates+1):
         tstart = time.time()
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        avrew=np.zeros(ac_space.n)
         obs, rewards, actions, dones, mbpi, goals, states, epinfos = runner.run()
         epinfobuf.extend(epinfos)
         mblossvals = []
         obs, actions, rewards, dones, goals, states = (sbi(arr, dones) for arr in
                                         (obs, actions, rewards, dones, goals, states))
-        rewards, vecs, vfs, nlps = model.av(avrew, obs, actions, rewards, dones, goals, states)
-        obs,actions,rewards,dones,vecs,goals,nlps,vfs,states = map(pack,(obs,actions,rewards,dones,vecs,goals,nlps,vfs,states))
-        rewards, advs = mcret(avrew, actions, rewards, dones, vfs, gam=model.gam)
+        rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
+        obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
+            map(pack,(obs,actions,rewards,dones,vecs,goals,nlps,vfs,states,inrs))
+        if not val:
+            vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
+            vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
+        rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
+        print(np.mean(goals))
         actions = actions.flatten() #safety
         inds = np.arange(nbatch)
-        for _ in range(noptepochs):
+        for _ in range(noe):
             np.random.shuffle(inds)
             for start in range(0, nbatch, nbatch_train):
                 end = start + nbatch_train
@@ -538,8 +604,9 @@ def learn(*, policy, env, nsteps, total_timesteps, encoef, lr, cliprange=0.2,
         
         lossvals = np.mean(mblossvals, axis=0)
         pi = np.mean(mbpi, axis=0)
+        print(np.mean(inrs, axis=0))
+        print(np.mean(actions, axis=0))
         print(pi)
-        print(avrew/nbatch)
         tnow = time.time()
         fps = int(nbatch / (tnow - tstart))
         if update % log_interval == 0 or update == 1:
