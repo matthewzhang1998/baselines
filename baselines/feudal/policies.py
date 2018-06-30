@@ -39,4 +39,4 @@ def CnnPolicy(tin, nh=64, layers=1, activ=tf.nn.relu, reuse=False, **conv_kwargs
     return tout
 
 def NullPolicy(tin):
-    return tf.layers.flatten(tin)
+    return tin

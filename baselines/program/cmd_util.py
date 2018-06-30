@@ -60,13 +60,13 @@ def feudal_arg_parser():
     parser.add_argument('--encoef', help='entropy coefficient', type=float, default=0.0)
     parser.add_argument('--lr', help='learning rate', type=float, default=1e-4)
     parser.add_argument('--cliphigh', help='cliprange max', type=float, default=0.2)
-    parser.add_argument('--clipinc', help='cliprange hierarchical divisor', type=float, default=0.5)
+    parser.add_argument('--clipinc', help='cliprange hierarchical divisor', type=float, default=1)
     parser.add_argument('--vcoef', help='value coefficient', type=float, default=0.5)
     parser.add_argument('--mgn', help='max grad norm', type=float, default=0.5)
     parser.add_argument('--gmax', help='gamma max', type=float, default=1e-2)
     parser.add_argument('--ginc', help='gamma hierarchical divisor', type=float, default=0.25)
     parser.add_argument('--lam', help='lambda', type=float, default=0.95)
-    parser.add_argument('--nhier', help='number of hierarchies', type=int, default=3)
+    parser.add_argument('--nhier', help='number of hierarchies', type=int, default=2)
     parser.add_argument('--nmb', help='number of minibatches', type=int, default=4)
     parser.add_argument('--noe', help='number of opt. epochs per batch', type=int, default=10)
     parser.add_argument('--ngmin', help='min number of goals', type=int, default=8)
@@ -75,6 +75,7 @@ def feudal_arg_parser():
     parser.add_argument('--bmax', help='beta max', type=float, default=1)
     parser.add_argument('--nhist', help='nhist lookahead per hier', type=int, default=4)
     parser.add_argument('--stoch', help='stochasticity', type=float, default=0.2)
+    parser.add_argument('--maxlen', help='max sim length', type=int, default=100)
     #parser.add_argument('--lambda-cur', help='curiosity weighting', type=float, default=1e-3)
     
     # policy parameters

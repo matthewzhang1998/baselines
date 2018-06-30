@@ -28,6 +28,7 @@ def train(env_id,
           gmax,
           ginc,
           lam,
+          max_len,
           nhier,
           nmb,
           noe,
@@ -65,6 +66,7 @@ def train(env_id,
         env.set_hier(False)
         env.set_visualize(vis)
         env.set_stoch(stoch)
+        env.set_length(max_len)
         env = bench.Monitor(env, logger.get_dir())
         env.seed(seed)
         return env
@@ -95,6 +97,7 @@ def train(env_id,
           bmin=bmin,
           bmax=bmax,
           nhist=nhist,
+          max_len=max_len,
           recurrent=recurrent,
           policy=policy,
           #curiosity=curiosity,
@@ -130,6 +133,7 @@ def main():
           nhist=args.nhist,
           recurrent=args.recurrent,
           pol=args.pol,
+          max_len=args.maxlen,
           cur=args.cur,
           vis=args.vis,
           model=args.model,
