@@ -375,8 +375,7 @@ def configure(dir=os.getcwd(), pre=None,
     os.makedirs(dir, exist_ok=True)
 
     log_suffix = ''
-    from mpi4py import MPI
-    rank = MPI.COMM_WORLD.Get_rank()
+    rank = 0
     if rank > 0:
         log_suffix = "-rank%03i" % rank
 
