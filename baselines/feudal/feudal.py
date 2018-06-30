@@ -359,6 +359,7 @@ class FeudalModel(object):
         if isinstance(cliprange, float): cliprange = np.array([cliprange/(2 ** i) for i in range(self.nhier)])
         else: assert cliprange.shape[0] == self.nhier
         
+        goals = np.reshape(goals, [-1, self.nhier-1, self.maxdim])
         lr = self.lr if lr == None else lr
         feed={self.STATES:states,
               self.R:rews,
@@ -411,6 +412,7 @@ class FeudalModel(object):
         return rew
     
     def ifv(self, obs, acts, goal, state, init_goal):
+        goal = np.reshape(goal, [-1, self.nhier-1, self.maxdim])
         feed={self.STATES:state, self.OBS:obs, self.OLDACTIONS:acts, self.OLDGOALS:goal, self.INITGOALS:init_goal}
         return self.sess.run([self.fvecs, self.vf, self.nlp], feed)
     
@@ -673,8 +675,9 @@ class RecurrentFeudalModel(object):
         
 class FeudalRunner(AbstractEnvRunner):
     # to do -> work on making a recurrent version
-    def __init__(self, env, model, nsteps):
+    def __init__(self, env, model, nsteps, recurrent):
         self.env = env
+        self.recurrent=recurrent
         self.model = model
         nenv = env.num_envs
         self.batch_ob_shape = (nenv*nsteps,) + env.observation_space.shape
@@ -685,17 +688,19 @@ class FeudalRunner(AbstractEnvRunner):
         self.dones = [False for _ in range(nenv)]
         
         # not sure why but one step is required at the beginning
-        actions, goal, pi, self.states = self.model.step(self.obs, self.states)
-        self.states = self.states[0]
-        self.obs[:], rewards, self.dones, _ = self.env.step(actions) # perform 1 step, safety
-        
+        if recurrent:
+            actions, goal, pi, self.states = self.model.step(self.obs, self.states)
+            self.states = self.states[0]
+            self.obs[:], rewards, self.dones, _ = self.env.step(actions) # perform 1 step, safety
+            
     def run(self):
         mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, mb_states = [],[],[],[],[],[],[]
         epinfos = []
         for i in range(self.nsteps):
             mb_states.append(self.states)
             actions, goal, pi, self.states = self.model.step(self.obs, self.states)
-            self.states = self.states[0]
+            if self.recurrent:
+                self.states = self.states[0]
             mb_obs.append(self.obs.copy())
             mb_goals.append(goal[0])
             mb_pi.append(pi)
@@ -754,6 +759,8 @@ def sf01(arr):
     swap and then flatten axes 0 and 1
     """
     s = arr.shape
+    if len(arr.shape) == 1:
+        return arr
     return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
     
 def constfn(val):
@@ -859,7 +866,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     if load_path is not None:
         model.load(load_path)
     
-    runner = FeudalRunner(env=env, model=model, nsteps=nsteps)
+    runner = FeudalRunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
     nupdates = tsteps//nbatch
