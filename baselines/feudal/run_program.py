@@ -107,7 +107,7 @@ def main():
     args = feudal_arg_parser().parse_args()
     if args.quiet:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    dir=logger.configure()
+    dir=logger.configure(pre=args.log)
     tolog = vars(args)
     logger.logvar(tolog, dir=dir)
     train(env_id=args.env, 
