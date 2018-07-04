@@ -11,39 +11,10 @@ import os.path as osp
 import numpy as np
 from baselines import logger
 from collections import deque
-from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
-from baselines.feudal.runners import FeudalRunner, I2ARunner
+from baselines.feudal.models import I2AModel
+from baselines.feudal.runners import I2ARunner
 
 PATH="tmp/build/graph"
-    
-def pad(arr, minsize): # arr must be at least minsize
-    nbatch = arr.shape[0]
-    d = minsize - nbatch
-    if d > 0:
-        rep = [1]*(nbatch-1)+[d+1]
-        arr = np.repeat(arr, rep, axis=0)
-    return arr
-
-def sbi(arr, dones):
-    nbatch=dones.shape[0]
-    abd=[]
-    si=0
-    for t in range(nbatch):
-        if dones[t] == 1:
-            abd.append(arr[si:t+1])
-            si=t+1
-        elif t==nbatch-1:
-            abd.append(arr[si:])
-    return abd
-
-def pack(arr):
-    try:
-        arr = np.vstack(arr)
-        if arr.shape[0]==1:
-            return np.flatten(arr)
-        else: return arr
-    except:
-        return np.hstack(arr)
 
 def constfn(val):
     def f(_):
@@ -69,30 +40,6 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     mb_returns = mb_advs + vals
     return mb_returns, mb_advs
 
-def recurrent_mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
-    mb_returns = np.zeros_like(rews)
-    mb_advs = np.zeros_like(rews)
-    lastgaelam = 0
-    nsteps = rews.shape[1]
-    nextvalues=vals[:,-1:,]
-    for t in reversed(range(nsteps)):
-        if t == nsteps - 1:
-            nextnonterminal = 0
-            nextvalues = 0 # assume last is terminal -> won't be too significant unless tstep is large
-        else:
-            nextnonterminal = 1.0
-            nextvalues = vals[:,t+1,:]
-        delta = rews[:,t,:] + gam * nextvalues * nextnonterminal - vals[:,t,:]
-        mb_advs[:,t,:] = lastgaelam = delta + gam * lam * nextnonterminal * lastgaelam
-        
-    mb_returns = mb_advs + vals
-    return mb_returns, mb_advs
-
-def safe_vstack(arr, dim1):
-    assert arr
-    shape = arr[0].shape
-    return np.reshape(np.vstack(arr), (dim1,) + shape)
-    
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
           recurrent, val, max_len=100, save_interval=0, log_interval=1, load_path=None):
@@ -132,12 +79,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         else:
             return bmin + (bmax - bmin) * k / (nhier - 1)
     
-    if recurrent:
-        make_model = lambda : RecurrentFeudalModel(policy, ob_space, ac_space, neplength=neplength, max_grad=mgn,
-              ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val)
-    else:
-        make_model = lambda : FeudalModel(policy, ob_space, ac_space, max_grad=mgn,
+    make_model = lambda : I2AModel(policy, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val)
     if save_interval and logger.get_dir():
@@ -148,7 +90,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     if load_path is not None:
         model.load(load_path)
     
-    runner = FeudalRunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
+    runner = I2ARunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
     nupdates = tsteps//nbatch
@@ -167,7 +109,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         mblossvals = []
         obs, actions, rewards, dones, goals, states = (sbi(arr, dones) for arr in
                                         (obs, actions, rewards, dones, goals, states))
-        
         if not recurrent:
             rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
             obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
@@ -177,10 +118,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
             rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
+            print(np.mean(goals))
             actions = actions.flatten() #safety
             inds = np.arange(nbatch)
-            if nhier == 1:
-                goals = np.zeros((nbatch, 0, model.maxdim))
             for _ in range(noe):
                 np.random.shuffle(inds)
                 for start in range(0, nbatch, nbatch_train):
@@ -190,28 +130,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         else: # recurrent version
-            print("debug_2")
-            rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
-            print(len(nlps), nlps[0].shape)
-            pre_vars = (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) 
-            map_vars = (safe_vstack(arr, nbatch) for arr in pre_vars)
-            (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) = map_vars
-            
-            if not val:
-                vre = vre * val_temp + np.apply_over_axes(np.mean, rewards, [0,1]) * (1-val_temp)
-                vfs = np.reshape(np.repeat(vre, nbatch*neplength), [nbatch, neplength, nhier])
-            rewards, advs = recurrent_mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
-            
-            feed_vars = (obs, actions, rewards, advs, goals, nlps, vfs, states)
-            mean_inr = np.mean(inrs)
-            inds = np.arange(nbatch)
-            for _ in range(noe):
-                np.random.shuffle(inds)
-                for start in range(0, nbatch, nbatch_train):
-                    end = start + nbatch_train
-                    mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in feed_vars)
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+            pass
         
         lossvals = np.mean(mblossvals, axis=0)
         tnow = time.time()
@@ -238,7 +157,3 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
 
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
-
-    
-
-    

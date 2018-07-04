@@ -79,14 +79,14 @@ def feudal_arg_parser():
     #parser.add_argument('--lambda-cur', help='curiosity weighting', type=float, default=1e-3)
     
     # policy parameters
-    parser.add_argument('--recurrent', help='recurrency', type=str, default=False)
+    parser.add_argument('--recurrent', help='recurrency', type=int, default=0)
     parser.add_argument('--pol', help='type of policy', type=str, default='null')
     parser.add_argument('--cur', help='curiosity model', type=str, default='null')
-    parser.add_argument('--vis', help='visualizations', type=bool, default=False)
+    parser.add_argument('--vis', help='visualizations', type=int, default=0)
     parser.add_argument('--model', help='encoding model', type=str, default='mlp')
     parser.add_argument('--log', help='writedir', type=str, default='test')
-    parser.add_argument('--val', help='value network', type=bool, default=False)
-    parser.add_argument('-q', '--quiet', action='store_true', help='quiet mode')
+    parser.add_argument('--val', help='value network', type=int, default=0)
+    parser.add_argument('--quiet', help='suppress tf', type=int, default=0)
     return parser
 
     
