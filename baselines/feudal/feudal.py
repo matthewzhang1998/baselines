@@ -167,7 +167,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         mblossvals = []
         obs, actions, rewards, dones, goals, states = (sbi(arr, dones) for arr in
                                         (obs, actions, rewards, dones, goals, states))
-        
         if not recurrent:
             rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
             obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
@@ -190,9 +189,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         else: # recurrent version
-            print("debug_2")
             rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
-            print(len(nlps), nlps[0].shape)
             pre_vars = (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) 
             map_vars = (safe_vstack(arr, nbatch) for arr in pre_vars)
             (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) = map_vars

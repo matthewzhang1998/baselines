@@ -46,7 +46,10 @@ class FeudalRunner(AbstractEnvRunner):
             if self.recurrent:
                 self.states = self.states[0]
             mb_obs.append(self.obs.copy())
-            mb_goals.append(goal[0])
+            if self.recurrent:
+                mb_goals.append(goal[0][0])
+            else:
+                mb_goals.append(goal[0])
             mb_pi.append(pi)
             mb_actions.append(actions[0])
             mb_dones.append(self.dones)
@@ -67,7 +70,8 @@ class FeudalRunner(AbstractEnvRunner):
         mb_states = np.asarray(mb_states, dtype=np.float32)
         # lose environment parallelism here -> need to fix
         
-        return (*map(sf01, (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_goals)), mb_states, epinfos)
+        return (*map(sf01, (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi)),
+                mb_goals, mb_states, epinfos)
 
 class I2ARunner(AbstractEnvRunner):
     def __init__(self, env, model, nsteps):

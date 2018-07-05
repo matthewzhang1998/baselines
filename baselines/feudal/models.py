@@ -206,7 +206,7 @@ class FeudalModel(object):
         else: assert cliprange.shape[0] == self.nhier
         
         try:
-            goals = np.reshape(goals, [-1, self.nhier-1, self.maxdim])
+            goals = np.reshape(goals, [nbatch, self.nhier-1, self.maxdim])
         except:
             pass
         lr = self.lr if lr == None else lr
@@ -262,7 +262,7 @@ class FeudalModel(object):
     
     def ifv(self, obs, acts, goal, state, init_goal):
         if self.nhier > 1:
-            goal = np.reshape(goal, [-1, self.nhier-1, self.maxdim])
+            goal = np.reshape(goal, [obs.shape[0], self.nhier-1, self.maxdim])
         else:
             goal = np.zeros((obs.shape[0], self.nhier - 1, self.maxdim))
         feed={self.STATES:state, self.OBS:obs, self.OLDACTIONS:acts, self.OLDGOALS:goal, self.INITGOALS:init_goal}
@@ -392,8 +392,7 @@ class RecurrentFeudalModel(object):
         nlp.append(self.networks[nhier-1].pd.neglogp(self.OLDACTIONS))
         nstate.append(self.networks[nhier-1].nstate)
         adv = self.ADV[:,:,nhier-1]
-        nlp_print = tf.Print(nlp[nhier-1], [nlp[nhier-1]])
-        ratio = tf.exp(self.OLDNLPS[:,:,nhier-1] - nlp_print)
+        ratio = tf.exp(self.OLDNLPS[:,:,nhier-1] - nlp)
         
         pl1 = -adv * ratio
         pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[nhier-1], 1.0 + self.CLIPRANGE[nhier-1])

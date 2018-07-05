@@ -54,9 +54,6 @@ class FeudalNetwork(object):
         self.nlp = neglogpout
         self.nstate = None
         
-        A = tf.constant(np.exp(1) - np.exp(-1), dtype=tf.float32)
-        B = tf.constant(np.exp(-1)/(np.exp(-1) - np.exp(1)), dtype=tf.float32)
-        
         def bcs(state, spad, gpad, nhist):
             rew = tf.fill([nbatch], 0.0)
             for t in range(nhist):
@@ -64,17 +61,15 @@ class FeudalNetwork(object):
                 gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                exp = tf.exp(tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))
-                rew += exp/A + B
+                cos = tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1)
+                rew += cos
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
             sim = tf.reduce_sum(tf.multiply(nfv, ngv), axis=-1)
-            expsim = tf.exp(sim)/tf.constant(np.exp(1)-np.exp(-1),
-                         dtype=tf.float32)/A + B
-            return expsim
+            return sim
         
         self.vf = vout
         if self.manager:    
@@ -106,7 +101,7 @@ class RecurrentFeudalNetwork(object):
         self.pdtype = pdtype
         
         with tf.variable_scope("level" + str(self.name)):
-            em_h2 = tf.nn.l2_normalize(activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2), r=True)))
+            em_h2 = activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2), r=True))
             embed_goal = activ(fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2), r=True))
             
             cell = cell(nh, state_is_tuple=False)
@@ -135,8 +130,7 @@ class RecurrentFeudalNetwork(object):
                 gvec = gpad[:,nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                cos = tf.exp(tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1))/ \
-                        tf.constant(np.exp(1), dtype=tf.float32)
+                cos = tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1)
                 rew += cos
             return rew
         
@@ -144,7 +138,6 @@ class RecurrentFeudalNetwork(object):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
             sim = tf.reduce_sum(tf.multiply(nfv, ngv), axis=-1)
-            sim = tf.exp(sim)/tf.constant(np.exp(1), dtype=tf.float32)
             return sim
         
         self.vf = vout
