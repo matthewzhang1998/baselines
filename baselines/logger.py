@@ -365,7 +365,7 @@ def configure(dir=os.getcwd(), pre=None,
     iteration = 0
     is_exist = 1
     while(is_exist):
-        temp_dir = osp.join(dir, 'test/iteration-{}'.format(iteration))
+        temp_dir = osp.join(dir, 'iteration-{}'.format(iteration))
         if not osp.exists(temp_dir):
             dir = temp_dir
             is_exist = 0

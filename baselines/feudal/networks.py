@@ -83,7 +83,7 @@ class FeudalNetwork(object):
             rep = tf.reshape(tf.tile(lstate, tf.constant([nhist])),(nhist,nout))
             spadf = tf.concat([em_h2, rep], axis=0)
             self.fvec = spadf[nhist:,] - em_h2
-            self.traj_sim = fcs(self.mfvec, aout, nhist)
+            self.traj_sim = fcs(self.fvec, aout, nhist)
            
 class RecurrentFeudalNetwork(object):
     def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
@@ -149,7 +149,7 @@ class RecurrentFeudalNetwork(object):
             self.inr = 1/nhist * tf.stop_gradient(bcs(em_h2, spad, gpad, nhist))
             
             lstate = em_h2[:,-1,:]
-            rep = tf.reshape(tf.tile(lstate, [nbatch, nhist]),
+            rep = tf.reshape(tf.tile(lstate, [nhist,1]),
                              (nbatch,nhist,nout))
             spadf = tf.concat([em_h2, rep], axis=1)
             self.fvec = spadf[:,nhist:,] - em_h2

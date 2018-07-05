@@ -25,7 +25,7 @@ class FeudalModel(object):
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
                  lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
-                 activ=tf.nn.relu):
+                 activ=tf.nn.relu, cos=False):
         '''
         INPUTS:
            policy - encoding function for input states
@@ -107,7 +107,10 @@ class FeudalModel(object):
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
             nstate.append(self.networks[t].nstate)
-            adv = self.ADV[:,t] #* tsim[t]
+            if cos:
+                adv = self.ADV[:,:,t] * tsim[t]
+            else:
+                adv = self.ADV[:,:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
             pl1 = -adv * ratio
@@ -281,7 +284,7 @@ class RecurrentFeudalModel(object):
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
                  lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
-                 activ=tf.nn.relu):
+                 activ=tf.nn.relu, cos=False):
         '''
         INPUTS:
            policy - encoding function for input states
@@ -359,7 +362,10 @@ class RecurrentFeudalModel(object):
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
             nstate.append(self.networks[t].nstate)
-            adv = self.ADV[:,:,t] #* tsim[t]
+            if cos:
+                adv = self.ADV[:,:,t] * tsim[t]
+            else:
+                adv = self.ADV[:,:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,:,t] - nlp[t])
             pl1 = -adv * ratio

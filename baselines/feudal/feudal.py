@@ -95,7 +95,8 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, val, max_len=100, save_interval=0, log_interval=1, load_path=None):
+          recurrent, cos, val, max_len=100, save_interval=0, log_interval=1, 
+          load_path=None):
     
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
@@ -115,9 +116,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     assert (nenvs * nsteps)%max_len == 0
     if recurrent:
         nbatch = (nenvs * nsteps)//max_len
-        print(nbatch, nmb)
     else:
         nbatch = (nenvs * nsteps)
+    nupdates = tsteps//(nenvs * nsteps)
     nbatch_train = nbatch // nmb
     
     def ng(k):
@@ -135,11 +136,11 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     if recurrent:
         make_model = lambda : RecurrentFeudalModel(policy, ob_space, ac_space, neplength=neplength, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val)
+              val=val, cos=cos)
     else:
         make_model = lambda : FeudalModel(policy, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val)
+              val=val, cos=cos)
     if save_interval and logger.get_dir():
         import cloudpickle
         with open(osp.join(logger.get_dir(), 'make_model.pkl'), 'wb') as fh:
@@ -151,7 +152,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     runner = FeudalRunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
-    nupdates = tsteps//nbatch
     
     if not val:
         vre = np.zeros((nhier), dtype=np.float32)
@@ -171,7 +171,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
             obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
                 map(pack,(obs,actions,rewards,dones,vecs,goals,nlps,vfs,states,inrs))
-            mean_inr = np.mean(inrs)
+            print(inrs.shape)
+            mean_inr = np.mean(inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
@@ -200,7 +201,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, advs = recurrent_mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             
             feed_vars = (obs, actions, rewards, advs, goals, nlps, vfs, states)
-            mean_inr = np.mean(inrs)
+            print(inrs.shape)
+            mean_inr = np.mean(inrs, axis=(0,1))
             inds = np.arange(nbatch)
             for _ in range(noe):
                 np.random.shuffle(inds)
@@ -218,7 +220,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             logger.logkv("nupdates", update)
             logger.logkv("total_timesteps", update*nbatch)
             logger.logkv("fps", fps)
-            logger.logkv('intrinsic_reward', mean_inr)
+            for i in range(1, nhier):
+                logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength)
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
             logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
             logger.logkv('time_elapsed', tnow - tfirststart)

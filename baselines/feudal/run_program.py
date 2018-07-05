@@ -39,7 +39,8 @@ def train(env_id,
           nhist,
           recurrent,
           pol,
-          val):
+          val,
+          cos):
     from baselines.common import set_global_seeds
     from baselines.feudal.feudal import learn
     import gym
@@ -100,6 +101,7 @@ def train(env_id,
           max_len=max_len,
           recurrent=recurrent,
           policy=policy,
+          cos=cos,
           #curiosity=curiosity,
           val=val)
 
@@ -138,7 +140,8 @@ def main():
           vis=args.vis,
           model=args.model,
           val=args.val,
-          stoch=args.stoch)
+          stoch=args.stoch,
+          cos=args.cos)
             
 if __name__ == '__main__':
     main()
