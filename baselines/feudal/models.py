@@ -108,9 +108,9 @@ class FeudalModel(object):
             inr.append(self.networks[t].inr)
             nstate.append(self.networks[t].nstate)
             if cos:
-                adv = self.ADV[:,:,t] * tsim[t]
+                adv = self.ADV[:,t] * tsim[t]
             else:
-                adv = self.ADV[:,:,t] #* tsim[t]
+                adv = self.ADV[:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
             pl1 = -adv * ratio
