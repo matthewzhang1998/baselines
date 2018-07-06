@@ -6,10 +6,9 @@ Created on Tue Jun  5 15:42:33 2018
 @author: matthewszhang
 """
 import os
-import tensorflow as tf
 from baselines.program.cmd_util import feudal_arg_parser
-from baselines.feudal import policies
 from baselines import bench, logger
+from baselines.program.logger import Logger, dump_vars
 
 def train(env_id, 
           seed, 
@@ -40,7 +39,8 @@ def train(env_id,
           recurrent,
           pol,
           val,
-          cos):
+          cos,
+          log_obj = Logger()):
     from baselines.common import set_global_seeds
     from baselines.feudal.feudal import learn
     import gym
@@ -62,13 +62,13 @@ def train(env_id,
     def make_env():
         set_global_seeds(seed)
         env = gym.make(env_id)
-        env.set_path(logger.get_dir())
+        env.set_path(log_obj.get_dir())
         env.set_curiosity(curiosity, model)
         env.set_hier(False)
         env.set_visualize(vis)
         env.set_stoch(stoch)
         env.set_length(max_len)
-        env = bench.Monitor(env, logger.get_dir())
+        env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
         env.seed(seed)
         return env
     
@@ -103,15 +103,18 @@ def train(env_id,
           policy=policy,
           cos=cos,
           #curiosity=curiosity,
-          val=val)
+          val=val,
+          logger=log_obj)
 
 def main():
     args = feudal_arg_parser().parse_args()
     if args.quiet:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-    dir=logger.configure(pre=args.log)
-    tolog = vars(args)
-    logger.logvar(tolog, dir=dir)
+    logger.configure()
+    log_obj = Logger(args.log)
+    variables = vars(args)
+    dump_vars(variables, dirname=log_obj.get_dir())
+    
     train(env_id=args.env, 
           seed=args.seed, 
           tsteps=args.tsteps,
@@ -141,7 +144,8 @@ def main():
           model=args.model,
           val=args.val,
           stoch=args.stoch,
-          cos=args.cos)
+          cos=args.cos,
+          log_obj=log_obj)
             
 if __name__ == '__main__':
     main()

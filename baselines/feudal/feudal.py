@@ -9,7 +9,6 @@ import time
 import os
 import os.path as osp
 import numpy as np
-from baselines import logger
 from collections import deque
 from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
 from baselines.feudal.runners import FeudalRunner, I2ARunner
@@ -95,8 +94,8 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, cos, val, max_len=100, save_interval=0, log_interval=1, 
-          load_path=None):
+          recurrent, cos, val, max_len=100, save_interval=0, log_interval=1,
+          logger=None, load_path=None):
     
     if isinstance(lr, float): lr = constfn(lr)
     else: assert callable(lr)
@@ -141,10 +140,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         make_model = lambda : FeudalModel(policy, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val, cos=cos)
-    if save_interval and logger.get_dir():
-        import cloudpickle
-        with open(osp.join(logger.get_dir(), 'make_model.pkl'), 'wb') as fh:
-            fh.write(cloudpickle.dumps(make_model))
     model = make_model()
     if load_path is not None:
         model.load(load_path)
@@ -216,24 +211,19 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         tnow = time.time()
         fps = int(nbatch / (tnow - tstart))
         if update % log_interval == 0 or update == 1:
-            logger.logkv("serial_timesteps", update*nsteps)
-            logger.logkv("nupdates", update)
-            logger.logkv("total_timesteps", update*nbatch)
-            logger.logkv("fps", fps)
-            for i in range(1, nhier):
-                logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength)
-            logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
-            logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
-            logger.logkv('time_elapsed', tnow - tfirststart)
-            for (lossval, lossname) in zip(lossvals, model.loss_names):
-                logger.logkv(lossname, lossval)
-            logger.dumpkvs()
-        if save_interval and (update % save_interval == 0 or update == 1) and logger.get_dir():
-            checkdir = osp.join(logger.get_dir(), 'checkpoints')
-            os.makedirs(checkdir, exist_ok=True)
-            savepath = osp.join(checkdir, '%.5i'%update)
-            print('Saving to', savepath)
-            model.save(savepath)
+            if logger is not None:
+                logger.logkv("serial_timesteps", update*nsteps)
+                logger.logkv("nupdates", update)
+                logger.logkv("total_timesteps", update*nbatch)
+                logger.logkv("fps", fps)
+                for i in range(1, nhier):
+                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength)
+                logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
+                logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
+                logger.logkv('time_elapsed', tnow - tfirststart)
+                for (lossval, lossname) in zip(lossvals, model.loss_names):
+                    logger.logkv(lossname, lossval)
+                logger.dumpkvs()
     env.close()
 
 def safemean(xs):
