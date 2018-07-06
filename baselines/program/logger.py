@@ -102,7 +102,6 @@ class CSVOutputFormat(Writer):
             if v is not None:
                 self.file.write(str(v))
         self.file.write('\n')
-        self.file.flush()
 
     def close(self):
         self.file.close()
