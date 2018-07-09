@@ -8,14 +8,76 @@ Created on Tue Jul  3 10:17:12 2018
 import tensorflow as tf
 import numpy as np
 from baselines.feudal.utils import fc
+from baselines.feudal.distributions import ConstantPd
 
 PATH="tmp/build/graph"
+
+'''
+class FixedWorkerNetwork(object):
+    def __init__(self, ):
+        self.supervisor_policy = supervisor_policy
+        self.pd = ConstantPd(self.state)
+        
+        self.aout = tf.convert_to_tensor(self.supervisor_policy)
+        self.nlp = self.pd.neglogp(self.aout)
+        self.nstate = None
+        self.fvec = None
+        self.inr = None
+'''
+
+class FixedManagerNetwork(object):
+    def __init__(self, goal_state, state, recurrent, nhist, nh, nbatch, 
+                 *args, **kwargs):
+        self.state = state
+        self.nhist = nhist
+        
+        # Do not embed state
+        self.pd = ConstantPd(goal_state - state)
+        self.aout = self.pd.sample()
+        self.nlp = self.pd.neglogp(self.aout)
+        self.vf = tf.constant([0.0])
+        
+        def bcs(state, spad, gpad, nhist):
+            rew = tf.fill([nbatch], 0.0)
+            for t in range(nhist):
+                svec = state - spad[nhist-t-1:-(t+1),:]
+                gvec = gpad[nhist-t-1:-(t+1),:]
+                nsv = tf.nn.l2_normalize(svec, axis=-1)
+                ngv = tf.nn.l2_normalize(gvec, axis=-1)
+                cos = tf.reduce_sum(tf.multiply(nsv, ngv), axis=-1)
+                rew += cos
+            return rew
+        
+        def fcs(fvec, gvec, nhist):
+            nfv = tf.nn.l2_normalize(fvec, axis=-1)
+            ngv = tf.nn.l2_normalize(gvec, axis=-1)
+            sim = tf.reduce_sum(tf.multiply(nfv, ngv), axis=-1)
+            return sim
+        
+        if recurrent:
+            pad = tf.constant([[0,0],[nhist,0], [0,0]])
+            spad = tf.pad(self.state, pad, "CONSTANT")
+            gpad = tf.pad(self.aout, pad, "CONSTANT")
+            self.inr = 1/nhist * tf.stop_gradient(bcs(self.state, spad, gpad, nhist))        
+        else:
+            pad = tf.constant([[nhist,0], [0,0]])
+            spad = tf.pad(self.state, pad, "CONSTANT")
+            gpad = tf.pad(self.aout, pad, "CONSTANT")
+            self.inr = 1/nhist * tf.stop_gradient(bcs(self.state, spad, gpad, nhist))
+        self.fvec = tf.zeros_like(self.state)
+        self.traj_sim = tf.reduce_sum(tf.zeros_like(self.state), axis=-1)
+        if recurrent:
+            self.nstate = tf.zeros(shape=(tf.shape(self.state)[0], nh*2), dtype=tf.float32)
+        else:
+            self.nstate = None # fix this later
+            
+        self.nout = goal_state.shape[-1]
 
 class FeudalNetwork(object):
     '''
     Feudal Agent without recurrency
     '''
-    def __init__(self, mgoal, state, pstate, mfvec, pdtype=None, nhist=4, nin=32, ngoal=16,
+    def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
                  nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1e3, val=True):
         '''
         INPUTS:
@@ -32,17 +94,18 @@ class FeudalNetwork(object):
         self.name = name
         self.initial_state = None
         nout = ngoal if manager else nh
+        self.nout = nout
         self.pdtype = pdtype
         
         with tf.variable_scope("level" + str(self.name)):
             em_h2 = activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2)))
-            embed_goal = activ(fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2)))
+            embed_goal = fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2))
             pi_h1 = activ(fc(state, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
             pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nph, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
             
-            pout = embed_goal + pi_h2
+            pout = embed_goal * pi_h2
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
             #pout = pi_h2
         
@@ -72,8 +135,7 @@ class FeudalNetwork(object):
             return sim
         
         self.vf = vout
-        if self.manager:    
-            self.mfvec=mfvec[:,:ngoal]
+        if self.manager:
             pad = tf.constant([[nhist,0], [0,0]])
             spad = tf.pad(em_h2, pad, "CONSTANT")
             gpad = tf.pad(aout, pad, "CONSTANT")

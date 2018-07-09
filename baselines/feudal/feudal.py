@@ -94,7 +94,8 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, cos, val, max_len=100, save_interval=0, log_interval=1,
+          recurrent, cos, val, fixed_manager, goal_state, max_len=100,
+          save_interval=0, log_interval=1,
           logger=None, load_path=None):
     
     if isinstance(lr, float): lr = constfn(lr)
@@ -133,18 +134,22 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             return bmin + (bmax - bmin) * k / (nhier - 1)
     
     if recurrent:
-        make_model = lambda : RecurrentFeudalModel(policy, ob_space, ac_space, neplength=neplength, max_grad=mgn,
+        make_model = lambda : RecurrentFeudalModel(policy, env, ob_space, ac_space,
+              neplength=neplength, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val, cos=cos)
+              val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
+              encoef=encoef, vcoef=vcoef)
     else:
-        make_model = lambda : FeudalModel(policy, ob_space, ac_space, max_grad=mgn,
+        make_model = lambda : FeudalModel(policy, env, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val, cos=cos)
+              val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
+              encoef=encoef, vcoef=vcoef)
     model = make_model()
     if load_path is not None:
         model.load(load_path)
     
-    runner = FeudalRunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
+    runner = FeudalRunner(env=env, model=model, nsteps=nsteps, 
+                          recurrent=recurrent, fixed_manager=fixed_manager)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
     
@@ -157,16 +162,15 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        obs, rewards, actions, dones, mbpi, goals, states, epinfos = runner.run()
+        obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = runner.run()
         epinfobuf.extend(epinfos)
         mblossvals = []
-        obs, actions, rewards, dones, goals, states = (sbi(arr, dones) for arr in
-                                        (obs, actions, rewards, dones, goals, states))
+        obs, actions, rewards, dones, goals, states, init_goals = (sbi(arr, dones) for arr in
+                                        (obs, actions, rewards, dones, goals, states, init_goals))
         if not recurrent:
-            rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
-            obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
-                map(pack,(obs,actions,rewards,dones,vecs,goals,nlps,vfs,states,inrs))
-            print(inrs.shape)
+            rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
+                map(pack,(obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals))
             mean_inr = np.mean(inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
@@ -181,21 +185,21 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, vecs, goals, nlps, vfs, states))    
+                    slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         else: # recurrent version
-            rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
-            pre_vars = (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) 
+            rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            pre_vars = (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals) 
             map_vars = (safe_vstack(arr, nbatch) for arr in pre_vars)
-            (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs) = map_vars
+            (obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals) = map_vars
             
             if not val:
                 vre = vre * val_temp + np.apply_over_axes(np.mean, rewards, [0,1]) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nbatch*neplength), [nbatch, neplength, nhier])
             rewards, advs = recurrent_mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             
-            feed_vars = (obs, actions, rewards, advs, goals, nlps, vfs, states)
+            feed_vars = (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals)
             print(inrs.shape)
             mean_inr = np.mean(inrs, axis=(0,1))
             inds = np.arange(nbatch)

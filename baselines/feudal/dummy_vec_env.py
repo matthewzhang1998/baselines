@@ -1,7 +1,7 @@
 import numpy as np
 from gym import spaces
 from collections import OrderedDict
-from . import VecEnv
+from baselines.common.vec_env import VecEnv
 
 class DummyVecEnv(VecEnv):
     def __init__(self, env_fns):
@@ -78,7 +78,7 @@ class DummyVecEnv(VecEnv):
         # does not support keys
         goal = []
         for e in range(self.num_envs):
-            goal.append(self.envs[e].env.get_goal(obs[e]))
+            goal.append(self.envs[e].env.get_goal_state(obs[e]))
         return np.array(goal, np.float32) 
 
     def _obs_from_buf(self):

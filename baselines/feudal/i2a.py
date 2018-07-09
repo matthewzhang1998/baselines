@@ -16,10 +16,45 @@ from baselines.feudal.runners import I2ARunner
 
 PATH="tmp/build/graph"
 
+def package_environment(states, actions, rewards):
+    train_states = []
+    train_actions = []
+    train_rewards = []
+    train_nstates = []
+    
+    for (state, action, reward) in states, actions, rewards:
+        train_states.append(state[:-1])
+        train_nstates.append(state[1:])
+        train_actions.append(action[:-1])
+        train_rewards.append(reward[:-1])
+        
+    (np.asarray(arr).reshape((-1, arr.shape[-1])))
+
+def pack(arr):
+    try:
+        arr = np.vstack(arr)
+        if arr.shape[0]==1:
+            return np.flatten(arr)
+        else: return arr
+    except:
+        return np.hstack(arr)
+
 def constfn(val):
     def f(_):
         return val
     return f
+
+def sbi(arr, dones):
+    nbatch=dones.shape[0]
+    abd=[]
+    si=0
+    for t in range(nbatch):
+        if dones[t] == 1:
+            abd.append(arr[si:t+1])
+            si=t+1
+        elif t==nbatch-1:
+            abd.append(arr[si:])
+    return abd
 
 def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     mb_returns = np.zeros_like(rews)
@@ -56,32 +91,14 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         cliprange = cr    
 
     nenvs = env.num_envs
-    neplength = max_len
     ob_space = env.observation_space
     ac_space = env.action_space
-    assert (nenvs * nsteps)%max_len == 0
-    if recurrent:
-        nbatch = (nenvs * nsteps)//max_len
-        print(nbatch, nmb)
-    else:
-        nbatch = (nenvs * nsteps)
+    nbatch = (nenvs * nsteps)
     nbatch_train = nbatch // nmb
     
-    def ng(k):
-        return ngmin * (nginc **(nhier - k))
-    def gamma(k):
-        return 1 - (gmax * (ginc ** (nhier - 1 - k)))
-    def nh(k):
-        return nhist ** (k)
-    def beta(k):
-        if nhier==1:
-            return bmin            
-        else:
-            return bmin + (bmax - bmin) * k / (nhier - 1)
-    
     make_model = lambda : I2AModel(policy, ob_space, ac_space, max_grad=mgn,
-              ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val)
+              encoef=encoef, vcoef=vcoef, klcoef=klcoef, aggregator='concat',
+              traj_len = tl, nh=nh)
     if save_interval and logger.get_dir():
         import cloudpickle
         with open(osp.join(logger.get_dir(), 'make_model.pkl'), 'wb') as fh:
@@ -90,7 +107,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     if load_path is not None:
         model.load(load_path)
     
-    runner = I2ARunner(env=env, model=model, nsteps=nsteps, recurrent=recurrent)
+    runner = I2ARunner(env=env, model=model, nsteps=nsteps)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
     nupdates = tsteps//nbatch
@@ -104,21 +121,20 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        obs, rewards, actions, dones, mbpi, goals, states, epinfos = runner.run()
+        obs, rewards, actions, dones, epinfos = runner.run()
         epinfobuf.extend(epinfos)
         mblossvals = []
-        obs, actions, rewards, dones, goals, states = (sbi(arr, dones) for arr in
-                                        (obs, actions, rewards, dones, goals, states))
+        obs, actions, rewards, dones = (sbi(arr, dones) for arr in
+                                        (obs, actions, rewards, dones))
+        env_train_set = package_environment(obs, actions, rewards)
         if not recurrent:
-            rewards, vecs, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states)
-            obs,actions,rewards,dones,vecs,goals,nlps,vfs,states, inrs = \
-                map(pack,(obs,actions,rewards,dones,vecs,goals,nlps,vfs,states,inrs))
-            mean_inr = np.mean(inrs)
+            nlps, vfs = model.info(obs, actions)
+            obs, actions, rewards, dones, nlps, vfs = \
+                map(pack,(obs,actions,rewards,dones,nlps,vfs))
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
             rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
-            print(np.mean(goals))
             actions = actions.flatten() #safety
             inds = np.arange(nbatch)
             for _ in range(noe):
@@ -126,7 +142,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, vecs, goals, nlps, vfs, states))    
+                    slices = (arr[mbinds] for arr in (obs, actions, nlps, advs, rewards, vfs))    
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         else: # recurrent version
@@ -140,7 +156,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             logger.logkv("nupdates", update)
             logger.logkv("total_timesteps", update*nbatch)
             logger.logkv("fps", fps)
-            logger.logkv('intrinsic_reward', mean_inr)
             logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
             logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
             logger.logkv('time_elapsed', tnow - tfirststart)

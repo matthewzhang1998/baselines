@@ -8,24 +8,25 @@ Created on Tue Jul  3 10:18:48 2018
 import tensorflow as tf
 import numpy as np
 from baselines.feudal.distributions import make_pdtype
-from baselines.feudal.networks import FeudalNetwork, RecurrentFeudalNetwork
+from baselines.feudal.networks import FeudalNetwork, RecurrentFeudalNetwork, \
+                                     FixedManagerNetwork
 from baselines.feudal.i2a_helpers import Encoder, MBPolicy, MFPolicy, EnvironmentModel
 
 from gym import spaces
 
 PATH="tmp/build/graph"
     
-
 class FeudalModel(object):
     '''
     General class for organizing feudal networks
     Can train all networks in one sess.run call
     '''
-    def __init__(self, policy, ob_space, ac_space, nhier=2, max_grad=0.5,
+    def __init__(self, policy, env, ob_space, ac_space, nhier=2, max_grad=0.5,
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
                  lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
-                 activ=tf.nn.relu, cos=False):
+                 activ=tf.nn.relu, cos=False, fixed_network=0, 
+                 goal_state=None):
         '''
         INPUTS:
            policy - encoding function for input states
@@ -45,13 +46,18 @@ class FeudalModel(object):
         '''
         
         self.sess = tf.get_default_session() # get session
-        self.net = FeudalNetwork # get single network object
+        if fixed_network:
+            self.manager_net = FixedManagerNetwork
+            self.maxdim = goal_state.shape[-1]
+        else:
+            self.maxdim = ngoal(1)
+            self.manager_net = FeudalNetwork # get single network object
+        self.net = FeudalNetwork
         self.recurrent=recurrent
         self.val=val
         self.networks=[] # network array
         self.nhier=nhier # set hierarchy
-        beta, gam, tsim, val, fvecs, nlp, nstate=[],[],[],[],[],[],[] # hierarchically dependent parameters
-        self.maxdim = ngoal(1) # max goal dimensions for uniform input/output
+        beta, gam, tsim, val, nlp, nstate=[],[],[],[],[],[] # hierarchically dependent parameters
         self.init_goal = np.zeros(shape=(self.maxdim)) # 
         self.initial_state = np.zeros(shape=(nhier, nh*2))
         nfeat = ob_space.shape
@@ -59,7 +65,6 @@ class FeudalModel(object):
         self.STATES=tf.placeholder(dtype=tf.float32, shape=(None, nhier, nh*2))
         self.OBS=tf.placeholder(dtype=tf.float32, shape=(None,)+nfeat)
         self.INITGOALS=tf.placeholder(dtype=tf.float32, shape=(None, self.maxdim))
-        self.VECS=tf.placeholder(dtype=tf.float32, shape=(None, nhier-1, self.maxdim))
         self.R=tf.placeholder(dtype=tf.float32, shape=(None, nhier))
         self.ADV=tf.placeholder(dtype=tf.float32, shape=(None, nhier))
         self.OLDACTIONS=tf.placeholder(dtype=tf.int32, shape=(None,))
@@ -84,25 +89,33 @@ class FeudalModel(object):
             gam.append(g(t))
             pdtype=make_pdtype(spaces.Box(low=-1, high=1, shape=(ngoal(nhier-t-1),)))
             
-            self.networks.append(self.net(mgoal=goal[t][:,:ngoal(nhier-t)],
-                                          state=em_h1,
-                                          mfvec=self.VECS[:,t,:],
-                                          pstate=self.STATES[:,t,:],
-                                          nhist=nhist(nhier-t),
-                                          pdtype=pdtype,
-                                          nin=ngoal(nhier-t),
-                                          ngoal=ngoal(nhier-t-1),
-                                          nbatch=nbatch,
-                                          name=nhier-t-1,
-                                          manager=True,
-                                          val=val))
-            goal.append(tf.pad(self.networks[t].aout,
+            if fixed_network:
+                self.networks.append(self.manager_net(goal_state=goal[-1],
+                                              state=em_h1, 
+                                              recurrent=recurrent, 
+                                              nhist=nhist(nhier-t-1),
+                                              nh=nh,
+                                              nbatch=nbatch))
+                
+            else:
+                self.networks.append(self.manager_net(mgoal=goal[t][:,:ngoal(nhier-t)],
+                                              state=em_h1,
+                                              pstate=self.STATES[:,t,:],
+                                              nhist=nhist(nhier-t-1),
+                                              pdtype=pdtype,
+                                              nin=ngoal(nhier-t),
+                                              ngoal=ngoal(nhier-t-1),
+                                              nbatch=nbatch,
+                                              name=nhier-t-1,
+                                              manager=True,
+                                              val=val))
+            if fixed_network:
+                goal.append(self.networks[t].aout)
+            else:
+                goal.append(tf.pad(self.networks[t].aout,
                                 tf.constant([[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
                                 mode='CONSTANT'))
             nlp.append(self.networks[t].pd.neglogp(self.OLDGOALS[:,t,:ngoal(nhier-t-1)]))
-            fvecs.append(tf.pad(self.networks[t].fvec, 
-                                tf.constant([[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
-                                mode='CONSTANT'))
             
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
@@ -128,16 +141,16 @@ class FeudalModel(object):
         beta.append(b(nhier-1))
         gam.append(g(nhier-1))
         pdtype = make_pdtype(ac_space)
+        self.nout = self.maxdim if fixed_network else ngoal(1)
         self.networks.append(self.net(mgoal=goal[nhier-1],
                                       state=em_h1,
                                       pstate=self.STATES[:,nhier-1,:],
-                                      mfvec=None, 
-                                      nin=ngoal(1),
+                                      nin=self.nout,
                                       name=0,
                                       ngoal=ngoal(0),
                                       pdtype=pdtype,
                                       manager=False,
-                                      nhist=nhist(1),
+                                      nhist=nhist(0),
                                       nbatch=nbatch,
                                       val=val))
         nlp.append(self.networks[nhier-1].pd.neglogp(self.OLDACTIONS))
@@ -161,11 +174,9 @@ class FeudalModel(object):
         entropy += tf.reduce_mean(self.networks[nhier-1].pd.entropy())
         
         self.pi=self.networks[nhier-1].pi
-        if nhier > 1:
-            self.fvecs=tf.transpose(tf.stack(fvecs),[1,0,2])   
+        if nhier > 1:  
             self.goals = tf.transpose(tf.stack(goal[1:]),[1,0,2])
         else:
-            self.fvecs=tf.zeros(shape=[nbatch, nhier-1, self.maxdim])
             self.goals=tf.zeros(shape=[nbatch, nhier-1, self.maxdim])
         if self.recurrent:
             self.nstate=tf.stack(nstate)
@@ -187,21 +198,23 @@ class FeudalModel(object):
         self.loss = self.ploss + self.vloss * vcoef - self.entropy * encoef
         self.loss_names = ["entropy", "policy loss", "value loss", "approxkl", "clipfrac"]
         optimizer = tf.train.AdamOptimizer(lr)
-        params = tf.trainable_variables()
-        grads = tf.gradients(self.loss, params)
-        if max_grad is not None:
+        if max_grad > 0:
+            params = tf.trainable_variables()
+            grads = tf.gradients(self.loss, params)
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad)
-        grads = list(zip(grads, params))
-        self._trainer = optimizer.apply_gradients(grads)
+            grads = list(zip(grads, params))
+            self._trainer = optimizer.apply_gradients(grads)
+        else:
+            self._trainer = optimizer.minimize(self.loss)
         tf.global_variables_initializer().run(session=self.sess)
         
     def train(self, lr,
               cliprange, obs,
               acts, rews,
-              advs, vecs,
+              advs,
               goals, nlps,
               vfs, states,
-              eplens=None, init_goal=None):
+              init_goal=None):
         nbatch=obs.shape[0]
         if init_goal is None: init_goal = np.tile(self.init_goal,(nbatch,1))
         else: init_goal = init_goal
@@ -220,7 +233,6 @@ class FeudalModel(object):
               self.OBS:obs,
               self.INITGOALS:init_goal,
               self.LR:lr, 
-              self.VECS:vecs, 
               self.CLIPRANGE:cliprange,
               self.OLDGOALS:goals,
               self.OLDNLPS:nlps,
@@ -233,8 +245,12 @@ class FeudalModel(object):
                               self._trainer], feed)[:-1]
     
     def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvecs, vvfs, vnlps, vinr =[],[],[],[],[]
-        for (ob, act, rew, done, goal,state) in zip(obs,acts,rews,dones,goals,states):
+        vadvs, vvfs, vnlps, vinr =[],[],[],[]
+        if init_goal is None:
+            init_goal = [None] * len(obs)
+            
+        for (ob, act, rew, done, goal, state, init_goal) in \
+                zip(obs,acts,rews,dones,goals,states,init_goal):
             nbatch=ob.shape[0]
             trews=np.reshape(np.repeat(rew, self.nhier, -1),(nbatch, self.nhier))
             if init_goal is None:
@@ -243,13 +259,12 @@ class FeudalModel(object):
                 feed_goal = init_goal
             inr=self.rewards(ob, state, init_goal=feed_goal)
             mbrews=trews*(1-self.beta) + inr*(self.beta)
-            mbfvecs, mbvfs, mbnlps =self.ifv(ob, act, goal, state, init_goal=feed_goal)
+            mbvfs, mbnlps =self.ifv(ob, act, goal, state, init_goal=feed_goal)
             vadvs.append(mbrews)
-            vvecs.append(mbfvecs)
             vvfs.append(mbvfs)
             vnlps.append(mbnlps)
             vinr.append(inr)
-        return vadvs, vvecs, vvfs, vnlps, vinr
+        return vadvs, vvfs, vnlps, vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -269,7 +284,7 @@ class FeudalModel(object):
         else:
             goal = np.zeros((obs.shape[0], self.nhier - 1, self.maxdim))
         feed={self.STATES:state, self.OBS:obs, self.OLDACTIONS:acts, self.OLDGOALS:goal, self.INITGOALS:init_goal}
-        return self.sess.run([self.fvecs, self.vf, self.nlp], feed)
+        return self.sess.run([self.vf, self.nlp], feed)
     
     def extend(self):
         pass # should create another level of hierarchy dynamically as the look-ahead threshold is surpassed
@@ -280,11 +295,11 @@ class RecurrentFeudalModel(object):
     General class for organizing feudal networks
     Can train all networks in one sess.run call
     '''
-    def __init__(self, policy, ob_space, ac_space, neplength=100, nhier=2, max_grad=0.5,
+    def __init__(self, policy, env, ob_space, ac_space, neplength=100, nhier=2, max_grad=0.5,
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
                  lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
-                 activ=tf.nn.relu, cos=False):
+                 activ=tf.nn.relu, cos=False, fixed_network=False, goal_state=None):
         '''
         INPUTS:
            policy - encoding function for input states
@@ -305,7 +320,13 @@ class RecurrentFeudalModel(object):
         
         self.sess = tf.get_default_session() # get session
         self.neplength=neplength
-        self.net = RecurrentFeudalNetwork 
+        if fixed_network:
+            self.manager_net = FixedManagerNetwork
+            self.maxdim=goal_state.shape[-1]
+        else:
+            self.manager_net = RecurrentFeudalNetwork
+            self.maxdim = ngoal(1)
+        self.net = RecurrentFeudalNetwork
         self.recurrent=recurrent
         self.val=val
         self.networks=[] # network array
@@ -342,10 +363,18 @@ class RecurrentFeudalModel(object):
             beta.append(b(t))
             gam.append(g(t))
             pdtype=make_pdtype(spaces.Box(low=-1, high=1, shape=(ngoal(nhier-t-1),)), r=True)
-            self.networks.append(self.net(mgoal=goal[t][:,:,:ngoal(nhier-t)],
+            if fixed_network: 
+                self.networks.append(self.manager_net(goal_state=goal[-1],
+                                              state=em_h1, 
+                                              recurrent=recurrent, 
+                                              nhist=nhist(nhier-t-1),
+                                              nh=nh,
+                                              nbatch=nbatch))
+            else:
+                self.networks.append(self.manager_net(mgoal=goal[t][:,:,:ngoal(nhier-t)],
                                           state=em_h1,
                                           pstate=self.STATES[:,:,t,:],
-                                          nhist=nhist(nhier-t),
+                                          nhist=nhist(nhier-t-1),
                                           pdtype=pdtype,
                                           neplength=neplength,
                                           nin=ngoal(nhier-t),
@@ -383,16 +412,17 @@ class RecurrentFeudalModel(object):
         beta.append(b(nhier-1))
         gam.append(g(nhier-1))
         pdtype = make_pdtype(ac_space, r=True)
+        self.nout = self.maxdim if fixed_network else ngoal(1)
         self.networks.append(self.net(mgoal=goal[nhier-1],
                                       state=em_h1,
                                       pstate=self.STATES[:,:,nhier-1,:],
-                                      nin=ngoal(1),
+                                      nin=self.nout,
                                       neplength=neplength,
                                       name=0,
                                       ngoal=ngoal(0),
                                       pdtype=pdtype,
                                       manager=False,
-                                      nhist=nhist(1),
+                                      nhist=nhist(0),
                                       nbatch=nbatch,
                                       val=val))
         nlp.append(self.networks[nhier-1].pd.neglogp(self.OLDACTIONS))
@@ -441,12 +471,14 @@ class RecurrentFeudalModel(object):
         self.loss = self.ploss + self.vloss * vcoef - self.entropy * encoef
         self.loss_names = ["entropy", "policy loss", "value loss", "approxkl", "clipfrac"]
         optimizer = tf.train.AdamOptimizer(lr)
-        params = tf.trainable_variables()
-        grads = tf.gradients(self.loss, params)
-        if max_grad is not None:
+        if max_grad > 0:
+            params = tf.trainable_variables()
+            grads = tf.gradients(self.loss, params)
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad)
-        grads = list(zip(grads, params))
-        self._trainer = optimizer.apply_gradients(grads)
+            grads = list(zip(grads, params))
+            self._trainer = optimizer.apply_gradients(grads)
+        else:
+            self._trainer = optimizer.minimize(self.loss)
         tf.global_variables_initializer().run(session=self.sess)
         
     def train(self, lr,
@@ -455,7 +487,7 @@ class RecurrentFeudalModel(object):
               advs,
               goals, nlps,
               vfs, states,
-              eplens=None, init_goal=None):
+              init_goal=None):
         nbatch=obs.shape[0]
         if init_goal is None: init_goal = np.tile(self.init_goal,(nbatch,self.neplength,1))
         else: init_goal = np.tile(init_goal,(nbatch,1,1))
@@ -482,9 +514,11 @@ class RecurrentFeudalModel(object):
                               self._trainer], feed)[:-1]
     
     def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvecs, vvfs, vnlps, vinr =[],[],[],[],[]
-        
-        for trans_tuple in zip(obs,acts,rews,dones,goals,states):
+        vadvs, vvfs, vnlps, vinr =[],[],[],[]
+        if init_goal is None:
+            init_goal = [None] * len(obs)
+            
+        for trans_tuple in zip(obs,acts,rews,dones,goals,states,init_goal):
             (ob, act, rew, done, goal, state) = trans_tuple
                 
             nbatch=1
@@ -502,7 +536,7 @@ class RecurrentFeudalModel(object):
             vvfs.append(mbvfs[0,:])
             vnlps.append(mbnlps[0,:])
             vinr.append(inr[0,:])
-        return vadvs, vvecs, vvfs, vnlps, vinr
+        return vadvs, vvfs, vnlps, vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -551,9 +585,10 @@ class I2AModel(object):
         self.LR=tf.placeholder(dtype=tf.float32)#placeholder
         
         flat_obs = tf.flatten(self.OBS)
+        flat_next = tf.flatten(self.NEXT_OBS)
         
         pdtype = make_pdtype(ac_space)
-        Aggregator = {'concat':tf.layers.flatten}
+        Aggregator = {'concat':tf.layers.flatten}[aggregator]
         
         self.sess = tf.get_default_session()
         
@@ -574,7 +609,7 @@ class I2AModel(object):
         self.environment_model = EnvironmentModel(flat_obs,
                                  nactions,
                                  self.OLDACTIONS,
-                                 self.NEXT_OBS,
+                                 flat_next,
                                  self.R,
                                  self.model_free_policy,
                                  *model_params)
@@ -640,7 +675,7 @@ class I2AModel(object):
         self.loss_names = ['approxkl', 'clipfrac', 'ploss', 'vloss', 'entropy']
         tf.global_variables_initializer().run(session=self.sess)
         
-    def train_rl(self, obs, actions, nlps, advs, rewards, values, lr, cliprange):
+    def train_rl(self, lr, cliprange, obs, actions, nlps, advs, rewards, values):
         feed = {self.OBS:obs, self.OLDACTIONS:actions,
                 self.OLDVALUES:values, self.R:rewards, self.ADV:advs,
                 self.OLDNLPS:nlps, self.LR:lr, self.CLIPRANGE:cliprange}
@@ -652,8 +687,9 @@ class I2AModel(object):
                               self.entropy, 
                               self.rl_trainer], feed)[:-1]
     
-    def train_environment(self, obs, actions, next_obs):
-        feed = {self.OBS:obs, self.OLDACTIONS:actions, self.NEXT_OBS:next_obs}
+    def train_environment(self, obs, actions, next_obs, rewards):
+        feed = {self.OBS:obs, self.OLDACTIONS:actions, self.NEXT_OBS:next_obs,
+                self.R: rewards}
         self.sess.run([self.environment_trainer], feed)
         return
     

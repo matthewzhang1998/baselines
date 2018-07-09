@@ -1,6 +1,7 @@
 from baselines.common.vec_env import VecEnvWrapper
 from baselines.common.running_mean_std import RunningMeanStd
 import numpy as np
+import tensorflow as tf
 
 class VecNormalize(VecEnvWrapper):
     """
@@ -42,6 +43,9 @@ class VecNormalize(VecEnvWrapper):
             rews = np.clip(rews / np.sqrt(self.ret_rms.var + self.epsilon), -self.cliprew, self.cliprew)
         return obs, rews, news, infos
 
+    def goal(self, obs):
+        return self.venv.goal(obs)
+
     def _obfilt(self, obs):
         if self.ob_rms:
             self.ob_rms.update(obs)
@@ -49,6 +53,15 @@ class VecNormalize(VecEnvWrapper):
             return obs
         else:
             return obs
+        
+    def tf_filt(self, obs_tf):
+        if self.ob_rms:
+            obs_tf = tf.clip_by_value((obs_tf - self.ob_rms.mean) / \
+                                      tf.cast(np.sqrt(self.ob_rms.var + self.epsilon), tf.float32),
+                                      -self.clipob, self.clipob)
+            return obs_tf
+        else:
+            return obs_tf
 
     def reset(self):
         """

@@ -8,7 +8,7 @@ Created on Tue Jun  5 15:42:33 2018
 import os
 from baselines.program.cmd_util import feudal_arg_parser
 from baselines import bench, logger
-from baselines.program.logger import Logger, dump_vars
+from baselines.program.mlogger import Logger, dump_vars
 
 def train(env_id, 
           seed, 
@@ -40,14 +40,15 @@ def train(env_id,
           pol,
           val,
           cos,
+          fm,
           log_obj = Logger()):
     from baselines.common import set_global_seeds
     from baselines.feudal.feudal import learn
     import gym
     import gym_program
     import tensorflow as tf
-    from baselines.common.vec_env.vec_normalize import VecNormalize
-    from baselines.common.vec_env.dummy_vec_env import DummyVecEnv
+    from baselines.feudal.vec_normalize import VecNormalize
+    from baselines.feudal.dummy_vec_env import DummyVecEnv
     from baselines.feudal.policies import CnnPolicy, MlpPolicy, NullPolicy
     from baselines.exploration.vime import vime
     from baselines.exploration import null
@@ -71,6 +72,10 @@ def train(env_id,
         env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
         env.seed(seed)
         return env
+
+    goal_state = None    
+    if fm:
+        goal_state = make_env().env.get_goal_state(None)
     
     env = DummyVecEnv([make_env])
     env = VecNormalize(env)
@@ -102,6 +107,8 @@ def train(env_id,
           recurrent=recurrent,
           policy=policy,
           cos=cos,
+          fixed_manager=fm,
+          goal_state=goal_state,
           #curiosity=curiosity,
           val=val,
           logger=log_obj)
@@ -145,6 +152,7 @@ def main():
           val=args.val,
           stoch=args.stoch,
           cos=args.cos,
+          fm=args.fm,
           log_obj=log_obj)
             
 if __name__ == '__main__':
