@@ -96,7 +96,6 @@ class FeudalModel(object):
                                               nhist=nhist(nhier-t-1),
                                               nh=nh,
                                               nbatch=nbatch))
-                
             else:
                 self.networks.append(self.manager_net(mgoal=goal[t][:,:ngoal(nhier-t)],
                                               state=em_h1,
@@ -332,7 +331,6 @@ class RecurrentFeudalModel(object):
         self.networks=[] # network array
         self.nhier=nhier # set hierarchy
         beta, gam, tsim, val, nlp, nstate=[],[],[],[],[],[] # hierarchically dependent parameters
-        self.maxdim = ngoal(1) # max goal dimensions for uniform input/output
         self.init_goal = np.zeros(shape=(self.maxdim)) # 
         self.initial_state = np.zeros(shape=(nhier, nh*2))
         nfeat = ob_space.shape
@@ -383,7 +381,10 @@ class RecurrentFeudalModel(object):
                                           name=nhier-t-1,
                                           manager=True,
                                           val=val))
-            goal.append(tf.pad(self.networks[t].aout,
+            if fixed_network:
+                goal.append(self.networks[t].aout)
+            else:
+                goal.append(tf.pad(self.networks[t].aout,
                                 tf.constant([[0,0],[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
                                 mode='CONSTANT'))
             nlp.append(self.networks[t].pd.neglogp(self.OLDGOALS[:,:,t,:ngoal(nhier-t-1)]))
@@ -489,8 +490,10 @@ class RecurrentFeudalModel(object):
               vfs, states,
               init_goal=None):
         nbatch=obs.shape[0]
+        
         if init_goal is None: init_goal = np.tile(self.init_goal,(nbatch,self.neplength,1))
-        else: init_goal = np.tile(init_goal,(nbatch,1,1))
+        else: init_goal = init_goal
+        
         if isinstance(cliprange, float): cliprange = np.array([cliprange/(2 ** i) for i in range(self.nhier)])
         else: assert cliprange.shape[0] == self.nhier
         
@@ -519,13 +522,13 @@ class RecurrentFeudalModel(object):
             init_goal = [None] * len(obs)
             
         for trans_tuple in zip(obs,acts,rews,dones,goals,states,init_goal):
-            (ob, act, rew, done, goal, state) = trans_tuple
+            (ob, act, rew, done, goal, state, init_goal) = trans_tuple
                 
             nbatch=1
             trews=np.reshape(np.repeat(rew, self.nhier, -1),(1, self.neplength, self.nhier))
             
             if init_goal is None:
-                feed_goal = np.tile(self.init_goal,(nbatch,self.neplength,1))
+                feed_goal = np.tile(self.init_goal,(nbatch,self.neplength,1,1))
             else:
                 feed_goal = np.tile(init_goal,(nbatch,1,1))
             

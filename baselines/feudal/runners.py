@@ -34,7 +34,7 @@ class FeudalRunner(AbstractEnvRunner):
         if self.fixed_manager:
             self.init_goal = env.goal(self.obs)
         else:
-            self.init_goal = model.init_goal
+            self.init_goal = [model.init_goal] * self.nenvs
         
         # not sure why but one step is required at the beginning
         if recurrent:
