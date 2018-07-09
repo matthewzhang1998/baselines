@@ -78,7 +78,7 @@ class FeudalNetwork(object):
     Feudal Agent without recurrency
     '''
     def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
-                 nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1e3, val=True):
+                 nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1e3, val=True):
         '''
         INPUTS:
             mgoal - goal tensor of supervisor
@@ -149,7 +149,7 @@ class FeudalNetwork(object):
            
 class RecurrentFeudalNetwork(object):
     def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
-                 nembed=8, manager=False, nh=64, activ=tf.nn.tanh, name=1, nbatch=1,
+                 nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1,
                  neplength=1e2, cell=tf.contrib.rnn.LSTMCell, val=False):
         self.mgoal=mgoal[:,:,:nin]
         self.state=state
