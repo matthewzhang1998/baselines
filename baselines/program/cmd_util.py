@@ -89,6 +89,8 @@ def feudal_arg_parser():
     parser.add_argument('--log', help='writedir', type=str, default='test')
     parser.add_argument('--val', help='value network', type=int, default=0)
     parser.add_argument('--quiet', help='suppress tf', type=int, default=0)
+    
+    parser.add_argument('--intermediate', help='intermediate goals', type=int, default=0)
     return parser
 
     

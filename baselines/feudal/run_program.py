@@ -41,6 +41,7 @@ def train(env_id,
           val,
           cos,
           fm,
+          inter,
           log_obj = Logger()):
     from baselines.common import set_global_seeds
     from baselines.feudal.feudal import learn
@@ -69,6 +70,7 @@ def train(env_id,
         env.set_visualize(vis)
         env.set_stoch(stoch)
         env.set_length(max_len)
+        env.set_intermediate(inter)
         env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
         env.seed(seed)
         return env
@@ -153,7 +155,8 @@ def main():
           stoch=args.stoch,
           cos=args.cos,
           fm=args.fm,
-          log_obj=log_obj)
+          inter=args.intermediate,
+          log_obj=log_obj,)
             
 if __name__ == '__main__':
     main()
