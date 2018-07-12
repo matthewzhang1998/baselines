@@ -84,7 +84,7 @@ def train(env_id,
 
     set_global_seeds(seed)
     
-    policy_params = {}
+    policy_params = {'r':recurrent}
 
     policy = {'mlp':MlpPolicy, 'null':NullPolicy, 'cnn':CnnPolicy, 
               'bn':BatchNormPolicy}[pol](**policy_params)

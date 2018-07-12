@@ -7,7 +7,8 @@ Created on Mon Jun 11 10:55:05 2018
 """
 import tensorflow as tf
 import numpy as np
-from baselines.a2c.utils import conv, fc, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
+from baselines.a2c.utils import conv, conv_to_fc, batch_to_seq, seq_to_batch, lstm, lnlstm
+from baselines.feudal.utils import fc
 
 def nature_cnn(unscaled_images, **conv_kwargs):
     """
@@ -31,18 +32,18 @@ class Policy(object):
 
 
 class MlpPolicy(Policy):
-    def __init__(self, *, nh=64, layers=2, activ=tf.nn.relu, reuse=False):
+    def __init__(self, *, nh=64, layers=2, activ=tf.nn.relu, reuse=False, r=False):
         self.nh = nh
         self.layers = layers
         self.activ=activ
         self.reuse = reuse
         self.out_shape = nh
+        self.r=r
         
     def __call__(self, tin):
-        flatten = tf.layers.flatten
-        embed = flatten(tin)
+        embed = tin
         for i in range(self.layers):
-            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2)))
+            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2), r=self.r))
         tout=embed
         return tout
             
@@ -70,18 +71,18 @@ class NullPolicy(Policy):
         return tin
     
 class BatchNormPolicy(Policy):
-    def __init__(self, *, nh=64, layers=1, activ=tf.nn.relu, reuse=False, **batch_norm_kwargs):
+    def __init__(self, *, nh=64, layers=1, activ=tf.nn.relu, reuse=False, r=False, **batch_norm_kwargs):
         self.nh = nh
         self.layers = layers
         self.activ = activ
         self.reuse = reuse
         self.out_shape = nh
         self.batch_norm_kwargs = batch_norm_kwargs
+        self.r=r
 
     def __call__(self, tin):
-        flat = tf.layers.flatten(tin)
-        embed = tf.layers.batch_normalization(flat, **self.batch_norm_kwargs)
+        embed = tf.layers.batch_normalization(tin, **self.batch_norm_kwargs)
         for i in range(self.layers):
-            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2)))
+            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2), r=self.r))
         tout = embed
         return tout
