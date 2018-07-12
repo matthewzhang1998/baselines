@@ -37,13 +37,13 @@ class FeudalRunner(AbstractEnvRunner):
             self.init_goal = [model.init_goal] * self.nenvs
         
         # not sure why but one step is required at the beginning
-        if recurrent:
+        if self.recurrent:
             actions, goal, pi, self.states = self.model.step(self.obs, self.states, self.init_goal)
             self.states = self.states[0]
             self.obs[:], rewards, self.dones, _ = self.env.step(actions) # perform 1 step, safety
             if self.fixed_manager:
                 self.init_goal = env.goal(self.obs)
-            
+        
     def run(self):
         mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, mb_states, \
                     mb_init_goals = [],[],[],[],[],[],[],[]

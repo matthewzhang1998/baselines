@@ -200,7 +200,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, advs = recurrent_mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             
             feed_vars = (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals)
-            print(inrs.shape)
             mean_inr = np.mean(inrs, axis=(0,1))
             inds = np.arange(nbatch)
             for _ in range(noe):
@@ -221,7 +220,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
                 for i in range(1, nhier):
-                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength)
+                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength/nh(nhier - i))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)

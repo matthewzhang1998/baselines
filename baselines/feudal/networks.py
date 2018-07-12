@@ -26,13 +26,14 @@ class FixedWorkerNetwork(object):
 '''
 
 class FixedManagerNetwork(object):
-    def __init__(self, goal_state, state, recurrent, nhist, nh, nbatch, 
+    def __init__(self, goal_state, state, recurrent, nhist, nh, policy, nbatch, 
                  *args, **kwargs):
         self.state = state
         self.nhist = nhist
         
         # Do not embed state
-        self.pd = ConstantPd(goal_state - state)
+        em_h2 = policy(goal_state)
+        self.pd = ConstantPd(em_h2 - state)
         self.aout = self.pd.sample()
         self.nlp = self.pd.neglogp(self.aout)
         self.vf = tf.constant([0.0])

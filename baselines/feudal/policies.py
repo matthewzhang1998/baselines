@@ -22,21 +22,66 @@ def nature_cnn(unscaled_images, **conv_kwargs):
     h3 = conv_to_fc(h3)
     return activ(fc(h3, 'fc1', nh=512, init_scale=np.sqrt(2)))
 
+class Policy(object):
+    def __init__(self):
+        raise NotImplementedError
+        
+    def __call__(self):
+        raise NotImplementedError
 
-def MlpPolicy(tin, nh=64, layers=2, activ=tf.nn.relu, reuse=False):
-    flatten = tf.layers.flatten
-    embed = flatten(tin)
-    for i in range(layers):
-        embed = activ(fc(embed, 'em_fc'+str(i), nh=nh, init_scale=np.sqrt(2)))
-    tout=embed
-    return tout
+
+class MlpPolicy(Policy):
+    def __init__(self, *, nh=64, layers=2, activ=tf.nn.relu, reuse=False):
+        self.nh = nh
+        self.layers = layers
+        self.activ=activ
+        self.reuse = reuse
+        self.out_shape = nh
+        
+    def __call__(self, tin):
+        flatten = tf.layers.flatten
+        embed = flatten(tin)
+        for i in range(self.layers):
+            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2)))
+        tout=embed
+        return tout
             
-def CnnPolicy(tin, nh=64, layers=1, activ=tf.nn.relu, reuse=False, **conv_kwargs):
-    embed = nature_cnn(tin, **conv_kwargs)
-    for i in range(layers):
-        embed = activ(fc(embed, 'em_fc'+str(i), nh=nh, init_scale=np.sqrt(2)))
-    tout = embed
-    return tout
+def CnnPolicy(Policy):
+    def __init__(self, *, nh=64, layers=1, activ=tf.nn.relu, reuse=False, **conv_kwargs):
+        self.nh = nh
+        self.layers = layers
+        self.activ=activ
+        self.reuse = reuse
+        self.out_shape = nh
+        self.conv_kwargs = conv_kwargs
+        
+    def __call__(self, tin):
+        embed = nature_cnn(tin, **self.conv_kwargs)
+        for i in range(self.layers):
+            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2)))
+        tout = embed
+        return tout
 
-def NullPolicy(tin):
-    return tin
+class NullPolicy(Policy):
+    def __init__(self, *args, **kwargs):
+        self.out_shape = None
+    
+    def __call__(self, tin):        
+        return tin
+    
+class BatchNormPolicy(Policy):
+    def __init__(self, *, nh=64, layers=1, activ=tf.nn.relu, reuse=False, **batch_norm_kwargs):
+        self.nh = nh
+        self.layers = layers
+        self.activ = activ
+        self.reuse = reuse
+        self.out_shape = nh
+        self.batch_norm_kwargs = batch_norm_kwargs
+
+    def __call__(self, tin):
+        flat = tf.layers.flatten(tin)
+        embed = tf.layers.batch_normalization(flat, **self.batch_norm_kwargs)
+        for i in range(self.layers):
+            embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2)))
+        tout = embed
+        return tout

@@ -48,9 +48,13 @@ class FeudalModel(object):
         self.sess = tf.get_default_session() # get session
         if fixed_network:
             self.manager_net = FixedManagerNetwork
-            self.maxdim = goal_state.shape[-1]
+            self.maxdim = policy.out_shape
+            if self.maxdim == None:
+                self.maxdim = goal_state.shape[-1]
+            self.initdim = goal_state.shape[-1]
         else:
             self.maxdim = ngoal(1)
+            self.initdim = self.maxdim
             self.manager_net = FeudalNetwork # get single network object
         self.net = FeudalNetwork
         self.recurrent=recurrent
@@ -64,7 +68,7 @@ class FeudalModel(object):
         
         self.STATES=tf.placeholder(dtype=tf.float32, shape=(None, nhier, nh*2))
         self.OBS=tf.placeholder(dtype=tf.float32, shape=(None,)+nfeat)
-        self.INITGOALS=tf.placeholder(dtype=tf.float32, shape=(None, self.maxdim))
+        self.INITGOALS=tf.placeholder(dtype=tf.float32, shape=(None, self.initdim))
         self.R=tf.placeholder(dtype=tf.float32, shape=(None, nhier))
         self.ADV=tf.placeholder(dtype=tf.float32, shape=(None, nhier))
         self.OLDACTIONS=tf.placeholder(dtype=tf.int32, shape=(None,))
@@ -95,6 +99,7 @@ class FeudalModel(object):
                                               recurrent=recurrent, 
                                               nhist=nhist(nhier-t-1),
                                               nh=nh,
+                                              policy=policy,
                                               nbatch=nbatch))
             else:
                 self.networks.append(self.manager_net(mgoal=goal[t][:,:ngoal(nhier-t)],
@@ -321,10 +326,14 @@ class RecurrentFeudalModel(object):
         self.neplength=neplength
         if fixed_network:
             self.manager_net = FixedManagerNetwork
-            self.maxdim=goal_state.shape[-1]
+            self.maxdim = policy.out_shape
+            if self.maxdim == None:
+                self.maxdim=goal_state.shape[-1]
+            self.initdim = goal_state.shape[-1]
         else:
             self.manager_net = RecurrentFeudalNetwork
             self.maxdim = ngoal(1)
+            self.initdim = self.maxdim
         self.net = RecurrentFeudalNetwork
         self.recurrent=recurrent
         self.val=val
@@ -337,7 +346,7 @@ class RecurrentFeudalModel(object):
         
         self.STATES=tf.placeholder(dtype=tf.float32, shape=(None, None, nhier, nh*2))
         self.OBS=tf.placeholder(dtype=tf.float32, shape=(None, None,)+nfeat)
-        self.INITGOALS=tf.placeholder(dtype=tf.float32, shape=(None, None, self.maxdim))
+        self.INITGOALS=tf.placeholder(dtype=tf.float32, shape=(None, None, self.initdim))
         self.R=tf.placeholder(dtype=tf.float32, shape=(None, None, nhier))
         self.ADV=tf.placeholder(dtype=tf.float32, shape=(None, None, nhier))
         self.OLDACTIONS=tf.placeholder(dtype=tf.int32, shape=(None, None))
@@ -367,6 +376,7 @@ class RecurrentFeudalModel(object):
                                               recurrent=recurrent, 
                                               nhist=nhist(nhier-t-1),
                                               nh=nh,
+                                              policy=policy,
                                               nbatch=nbatch))
             else:
                 self.networks.append(self.manager_net(mgoal=goal[t][:,:,:ngoal(nhier-t)],

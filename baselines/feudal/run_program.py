@@ -50,7 +50,7 @@ def train(env_id,
     import tensorflow as tf
     from baselines.feudal.vec_normalize import VecNormalize
     from baselines.feudal.dummy_vec_env import DummyVecEnv
-    from baselines.feudal.policies import CnnPolicy, MlpPolicy, NullPolicy
+    from baselines.feudal.policies import CnnPolicy, MlpPolicy, NullPolicy, BatchNormPolicy
     from baselines.exploration.vime import vime
     from baselines.exploration import null
     ncpu = 1
@@ -70,7 +70,7 @@ def train(env_id,
         env.set_visualize(vis)
         env.set_stoch(stoch)
         env.set_length(max_len)
-        env.set_intermediate(inter)
+        env.set_intermediate(inter, nhist)
         env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
         env.seed(seed)
         return env
@@ -83,8 +83,11 @@ def train(env_id,
     env = VecNormalize(env)
 
     set_global_seeds(seed)
+    
+    policy_params = {}
 
-    policy = {'mlp':MlpPolicy, 'null':NullPolicy, 'cnn':CnnPolicy}[pol]
+    policy = {'mlp':MlpPolicy, 'null':NullPolicy, 'cnn':CnnPolicy, 
+              'bn':BatchNormPolicy}[pol](**policy_params)
     learn(env=env,
           tsteps=tsteps,
           nsteps=nsteps,
