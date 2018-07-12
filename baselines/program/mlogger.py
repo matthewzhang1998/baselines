@@ -74,6 +74,7 @@ class HumanOutputFormat(Writer):
             
 class CSVOutputFormat(Writer):
     def __init__(self, filename):
+        self.filename=filename
         self.file = open(filename, 'w+t')
         self.keys = []
         self.sep = ','
@@ -102,6 +103,7 @@ class CSVOutputFormat(Writer):
             if v is not None:
                 self.file.write(str(v))
         self.file.write('\n')
+        self.file.flush()
 
     def close(self):
         self.file.close()
