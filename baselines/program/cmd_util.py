@@ -91,7 +91,7 @@ def feudal_arg_parser():
     parser.add_argument('--quiet', help='suppress tf', type=int, default=0)
     
     parser.add_argument('--intermediate', help='intermediate goals', type=int, default=0)
-    parser.add_argument('--nhidden', help='number of hidden units', type=int, defaut=64)
+    parser.add_argument('--nhidden', help='number of hidden units', type=int, default=64)
     return parser
 
     
