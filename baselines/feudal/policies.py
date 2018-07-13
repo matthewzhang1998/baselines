@@ -81,7 +81,7 @@ class BatchNormPolicy(Policy):
         self.r=r
 
     def __call__(self, tin):
-        embed = tf.layers.batch_normalization(tin, **self.batch_norm_kwargs)
+        embed = tf.layers.batch_normalization(tin, reuse=tf.AUTO_REUSE, **self.batch_norm_kwargs)
         for i in range(self.layers):
             embed = self.activ(fc(embed, 'em_fc'+str(i), nh=self.nh, init_scale=np.sqrt(2), r=self.r))
         tout = embed

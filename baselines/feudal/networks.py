@@ -32,7 +32,7 @@ class FixedManagerNetwork(object):
         self.nhist = nhist
         
         # Do not embed state
-        with tf.variable_scope("common"):
+        with tf.variable_scope("common", reuse=tf.AUTO_REUSE):
             em_h2 = policy(goal_state)
         self.pd = ConstantPd(em_h2 - state)
         self.aout = self.pd.sample()
