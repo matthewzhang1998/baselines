@@ -161,7 +161,7 @@ def main():
           cos=args.cos,
           fm=args.fm,
           inter=args.intermediate,
-          nhidde=args.nhidden,
+          nhidden=args.nhidden,
           log_obj=log_obj,)
             
 if __name__ == '__main__':
