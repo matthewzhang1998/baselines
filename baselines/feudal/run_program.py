@@ -42,6 +42,7 @@ def train(env_id,
           cos,
           fm,
           inter,
+          nhidden,
           log_obj = Logger()):
     from baselines.common import set_global_seeds
     from baselines.feudal.feudal import learn
@@ -113,6 +114,7 @@ def train(env_id,
           policy=policy,
           cos=cos,
           fixed_manager=fm,
+          nhidden=nhidden,
           goal_state=goal_state,
           #curiosity=curiosity,
           val=val,
@@ -159,6 +161,7 @@ def main():
           cos=args.cos,
           fm=args.fm,
           inter=args.intermediate,
+          nhidde=args.nhidden,
           log_obj=log_obj,)
             
 if __name__ == '__main__':

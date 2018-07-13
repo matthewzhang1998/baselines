@@ -12,9 +12,23 @@ import numpy as np
 from collections import deque
 from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
 from baselines.feudal.runners import FeudalRunner, I2ARunner
+from baselines.program.decode import decode
 
 PATH="tmp/build/graph"
     
+def sort_by_state(scalars, encoded_states, env):
+    scalar_dict = {}
+    for i in range(len(encoded_states)):
+        for j in range(encoded_states[i].shape[0]):
+            state = decode(encoded_states[i][j])
+            if state in scalar_dict:
+                scalar_dict[state][1] = (scalar_dict[state][0] * scalar_dict[state][1] + scalars[i][j][1]) \
+                                        /(scalar_dict[state][0] + 1)
+                scalar_dict[state][0] += 1
+            else:
+                scalar_dict[state] = [1,scalars[i][j][1]]
+    return scalar_dict
+            
 def pad(arr, minsize): # arr must be at least minsize
     nbatch = arr.shape[0]
     d = minsize - nbatch
@@ -94,7 +108,7 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, cos, val, fixed_manager, goal_state, max_len=100,
+          recurrent, cos, val, fixed_manager, goal_state, nhidden=64, max_len=100,
           save_interval=0, log_interval=1,
           logger=None, load_path=None):
     
@@ -138,12 +152,12 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
               neplength=neplength, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
-              encoef=encoef, vcoef=vcoef)
+              encoef=encoef, vcoef=vcoef, nh=nhidden)
     else:
         make_model = lambda : FeudalModel(policy, env, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
-              encoef=encoef, vcoef=vcoef)
+              encoef=encoef, vcoef=vcoef, nh=nhidden)
     model = make_model()
     if load_path is not None:
         model.load(load_path)
@@ -167,8 +181,17 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         mblossvals = []
         obs, actions, rewards, dones, goals, states, init_goals = (sbi(arr, dones) for arr in
                                         (obs, actions, rewards, dones, goals, states, init_goals))
+        
+        
+        
         if not recurrent:
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            # perform tally for each unique goal
+            inrs_per_goal = sort_by_state(inrs, init_goals, env)
+            
+            for i in inrs_per_goal.items():
+                print('state {} - rew {}'.format(i[0], i[1][1]))
+            
             obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
                 map(pack,(obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals))
             mean_inr = np.mean(inrs, axis=0)

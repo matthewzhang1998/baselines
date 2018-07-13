@@ -32,7 +32,8 @@ class FixedManagerNetwork(object):
         self.nhist = nhist
         
         # Do not embed state
-        em_h2 = policy(goal_state)
+        with tf.variable_scope("common"):
+            em_h2 = policy(goal_state)
         self.pd = ConstantPd(em_h2 - state)
         self.aout = self.pd.sample()
         self.nlp = self.pd.neglogp(self.aout)
