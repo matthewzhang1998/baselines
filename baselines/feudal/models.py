@@ -151,6 +151,7 @@ class FeudalModel(object):
                                       pstate=self.STATES[:,nhier-1,:],
                                       nin=self.nout,
                                       name=0,
+                                      nh=nh,
                                       ngoal=ngoal(0),
                                       pdtype=pdtype,
                                       manager=False,
