@@ -49,7 +49,10 @@ def sort_by_time(scalars, neplength):
                 except:
                     continue
             else:
-                scalar_dict[j] = [1, scalars[i][j][1]]
+                try:
+                    scalar_dict[j] = [1, scalars[i][j][1]]
+                except:
+                    continue
     return scalar_dict
 
 def decode_trajectories(states):
