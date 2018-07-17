@@ -17,17 +17,39 @@ from baselines.program.mlogger import Logger
 
 PATH="tmp/build/graph"
     
+def num(l):
+    N_NUMS = len(l)
+    val = 0
+    for i in range(N_NUMS):
+        val += l[i] * (N_NUMS ** (i))
+    return val
+
 def sort_by_state(scalars, encoded_states, env):
     scalar_dict = {}
     for i in range(len(encoded_states)):
         for j in range(encoded_states[i].shape[0]):
-            state = str(decode(encoded_states[i][j]))
+            state = num(decode(encoded_states[i][j])['state'])
             if state in scalar_dict:
                 scalar_dict[state][1] = (scalar_dict[state][0] * scalar_dict[state][1] + scalars[i][j][1]) \
                                         /(scalar_dict[state][0] + 1)
                 scalar_dict[state][0] += 1
             else:
                 scalar_dict[state] = [1,scalars[i][j][1]]
+    return scalar_dict
+
+def sort_by_time(scalars, neplength):
+    scalar_dict = {}
+    for i in range(len(scalars)):
+        for j in range(neplength):
+            if j in scalar_dict:
+                try:
+                    scalar_dict[j][1] = (scalar_dict[j][0] * scalar_dict[j][1] + scalars[i][j][1]) \
+                                        /(scalar_dict[j][0] + 1)
+                    scalar_dict[j][0] += 1
+                except:
+                    continue
+            else:
+                scalar_dict[j] = [1, scalars[i][j][1]]
     return scalar_dict
 
 def decode_trajectories(states):
@@ -178,7 +200,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
     
-    state_rew_logger = Logger(dir=logger.dir, output_format=['CSV'], csv_tag='goal_achievements.csv')
+    state_rew_logger = Logger(dir=logger.dir, output_format=['CSV'], csv_tag='sinrs.csv')
+    time_rew_logger = Logger(dir=logger.dir, output_format=['CSV'], csv_tag='tinrs.csv')
     test_run_logger = Logger(dir=logger.dir, output_format=['TXT'], txt_tag='test_traj.txt')
     
     if not val:
@@ -198,15 +221,18 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         
         if not recurrent:
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
-            # perform tally for each unique goal
-#            if fixed_manager:
-#                inrs_per_goal = sort_by_state(inrs, init_goals, env)
-#            
-#                for index,i in enumerate(inrs_per_goal.items()):
-#                    state_rew_logger.logkv("{}".format(index), i[1][1])
-#                
-#                    
-#                state_rew_logger.dumpkvs()
+            #perform tally for each unique goal
+            if fixed_manager:
+                inrs_per_goal = sort_by_state(inrs, init_goals, env)
+            
+                for index,i in enumerate(inrs_per_goal.items()):
+                    state_rew_logger.logkv("{}".format(i[0]), i[1][1])
+                state_rew_logger.dumpkvs()
+                
+                inrs_per_timestep = sort_by_time(inrs, neplength)
+                for i in enumerate(inrs_per_timestep.items()):
+                    time_rew_logger.logkv("{}".format(i[0]), i[1][1])
+                time_rew_logger.dumpkvs()
             
             obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
                 map(pack,(obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals))
@@ -250,11 +276,12 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         if update == 1 or update % test_interval == 0:
-            obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = test_runner.run()
+            obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
             trajectories = decode_trajectories(obs)
             test_run_logger.logkv('update_number', update)
             for i in range(len(trajectories)):
                 test_run_logger.logkv('state_{}'.format(i), '{}'.format(trajectories[i]))
+                test_run_logger.logkv('goal_{}'.format(i), '{}'.format(decode(init_goals[i])))
             test_run_logger.dumpkvs()
 
         lossvals = np.mean(mblossvals, axis=0)

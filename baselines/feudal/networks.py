@@ -121,7 +121,7 @@ class FeudalNetwork(object):
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
             
-            pout = embed_goal * pi_h2
+            pout = embed_goal + pi_h2
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
             #pout = pi_h2
         
