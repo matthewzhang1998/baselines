@@ -141,7 +141,7 @@ class ConstantPd(Pd):
     def mode(self):
         pass
     def neglogp(self, x):
-        return tf.reduce_sum(tf.zeros_like(x), axis=-1)
+        return tf.reduce_sum(tf.zeros_like(x, dtype=tf.float32), axis=-1)
     def kl(self, other):
         pass
     def entropy(self):
@@ -222,7 +222,6 @@ class DiagGaussianPd(Pd):
         return self.mean
     def neglogp(self, x):
         return 0.5 * tf.reduce_sum(tf.square((x - self.mean) / self.std), axis=-1) \
-               + 0.5 * np.log(2.0 * np.pi) * tf.to_float(tf.shape(x)[-1]) \
                + tf.reduce_sum(self.logstd, axis=-1)
     def kl(self, other):
         assert isinstance(other, DiagGaussianPd)

@@ -78,6 +78,7 @@ def feudal_arg_parser():
     parser.add_argument('--maxlen', help='max sim length', type=int, default=100)
     parser.add_argument('--cos', help='use cosine metric', type=int, default=0)
     parser.add_argument('--fm', help='fix manager', type=int, default=0)
+    parser.add_argument('--fa', help='fix actor', type=int, default=0)
     #parser.add_argument('--lambda-cur', help='curiosity weighting', type=float, default=1e-3)
     
     # policy parameters

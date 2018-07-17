@@ -108,24 +108,49 @@ class CSVOutputFormat(Writer):
     def close(self):
         self.file.close()
 
+class TXTOutputFormat(Writer):
+    def __init__(self, filename):
+        self.filename=filename
+        self.file = open(filename, 'w+t')
+        
+    def writekvs(self, kvs):
+        print(self.filename, self.file)
+        for key, item in kvs.items():
+            self.file.write('{}: {}'.format(key, item))
+            self.file.write('\n')
+            
+        self.file.write('\n \n \n')
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
+
 class Logger():
-    def __init__(self, dir=os.getcwd(), subdir=None, output_format=['CSV','HOF']):
+    def __init__(self, dir=os.getcwd(), subdir=None, output_format=['CSV','HOF'],
+                 csv_tag='progress.csv', hof_tag = sys.stdout, txt_tag='log.txt',
+                 makedir=False):
+        self.orig_dir = dir
         if subdir is not None:
             dir = osp.join(dir, subdir)
-        iteration = 0
-        is_exist = 1
-        while(is_exist):
-            temp_dir = osp.join(dir, 'iteration-{}'.format(iteration))
-            if not osp.exists(temp_dir):
-                dir = temp_dir
-                is_exist = 0
-            iteration += 1
-        os.makedirs(dir, exist_ok=True)
+            
+        if makedir:
+            iteration = 0
+            is_exist = 1
+            while(is_exist):
+                temp_dir = osp.join(dir, 'iteration-{}'.format(iteration))
+                if not osp.exists(temp_dir):
+                    dir = temp_dir
+                    is_exist = 0
+                iteration += 1
+            os.makedirs(dir, exist_ok=True)
+            
         self.dir = dir
+        self.subdir = subdir
         self.vars = defaultdict(float)
         
-        self.output_files = [{'CSV':CSVOutputFormat(osp.join(self.dir, 'progress.csv')),
-                              'HOF':HumanOutputFormat(sys.stdout)
+        self.output_files = [{'CSV':CSVOutputFormat(osp.join(self.dir, csv_tag)),
+                              'HOF':HumanOutputFormat(hof_tag),
+                              'TXT':TXTOutputFormat(osp.join(self.dir, txt_tag))
                                 }[of] for of in output_format]
 
     def logkv(self, key, val2log):

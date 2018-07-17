@@ -12,18 +12,27 @@ from baselines.feudal.distributions import ConstantPd
 
 PATH="tmp/build/graph"
 
-'''
-class FixedWorkerNetwork(object):
-    def __init__(self, ):
-        self.supervisor_policy = supervisor_policy
-        self.pd = ConstantPd(self.state)
+
+class FixedActorNetwork(object):
+    '''
+    sets up a network which returns dummy actions,
+    reduces propagation time and preserves model structure
+    '''
+    def __init__(self, mgoal, state, pstate, nh, recurrent, *args, **kwargs):
+        self.dummy_actions = tf.zeros_like(state, dtype=tf.float32)
+        self.pd = ConstantPd(self.dummy_actions)
+        self.pi = self.dummy_actions # this is a dummy variable
         
-        self.aout = tf.convert_to_tensor(self.supervisor_policy)
+        self.aout = tf.reduce_sum(self.pd.sample(), axis=-1)
         self.nlp = self.pd.neglogp(self.aout)
-        self.nstate = None
+        if recurrent:
+            self.nstate = tf.zeros(shape=(tf.shape(state)[0], nh*2), dtype=tf.float32)
+        else:
+            self.nstate = None
+        
+        # unused
         self.fvec = None
         self.inr = None
-'''
 
 class FixedManagerNetwork(object):
     def __init__(self, goal_state, state, recurrent, nhist, nh, policy, nbatch, 
@@ -37,6 +46,7 @@ class FixedManagerNetwork(object):
         self.pd = ConstantPd(em_h2 - state)
         self.aout = self.pd.sample()
         self.nlp = self.pd.neglogp(self.aout)
+        print(self.nlp)
         self.vf = tf.constant([0.0])
         
         def bcs(state, spad, gpad, nhist, axis=0):
@@ -83,7 +93,7 @@ class FeudalNetwork(object):
     '''
     Feudal Agent without recurrency
     '''
-    def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
+    def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16, recurrent=0,
                  nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1e3, val=True):
         '''
         INPUTS:
@@ -121,6 +131,7 @@ class FeudalNetwork(object):
             
         self.aout = aout
         self.nlp = neglogpout
+        print(self.nlp)
         self.nstate = None
         
         def bcs(state, spad, gpad, nhist):
@@ -156,7 +167,7 @@ class FeudalNetwork(object):
 class RecurrentFeudalNetwork(object):
     def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16,
                  nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1,
-                 neplength=1e2, cell=tf.contrib.rnn.LSTMCell, val=False):
+                 neplength=1e2, cell=tf.contrib.rnn.LSTMCell, val=False, recurrent=1):
         self.mgoal=mgoal[:,:,:nin]
         self.state=state
         self.pstate=pstate

@@ -25,6 +25,7 @@ def train(env_id,
           vcoef,
           mgn,
           gmax,
+          fa,
           ginc,
           lam,
           max_len,
@@ -71,6 +72,22 @@ def train(env_id,
         env.set_visualize(vis)
         env.set_stoch(stoch)
         env.set_length(max_len)
+        env.set_test(0)
+        env.set_intermediate(inter, nhist)
+        env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
+        env.seed(seed)
+        return env
+    
+    def make_test_env():
+        set_global_seeds(seed)
+        env = gym.make(env_id)
+        env.set_path(log_obj.get_dir())
+        env.set_curiosity(curiosity, model)
+        env.set_hier(False)
+        env.set_visualize(vis)
+        env.set_stoch(stoch)
+        env.set_length(max_len)
+        env.set_test(1)
         env.set_intermediate(inter, nhist)
         env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
         env.seed(seed)
@@ -82,6 +99,9 @@ def train(env_id,
     
     env = DummyVecEnv([make_env])
     env = VecNormalize(env)
+    
+    test_env = DummyVecEnv([make_test_env])
+    test_env = VecNormalize(test_env)
 
     set_global_seeds(seed)
     
@@ -107,6 +127,7 @@ def train(env_id,
           ngmin=ngmin,
           nginc=nginc,
           bmin=bmin,
+          test_env=test_env,
           bmax=bmax,
           nhist=nhist,
           max_len=max_len,
@@ -118,6 +139,7 @@ def train(env_id,
           goal_state=goal_state,
           #curiosity=curiosity,
           val=val,
+          fixed_agent=fa,
           logger=log_obj)
 
 def main():
@@ -125,7 +147,7 @@ def main():
     if args.quiet:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     logger.configure()
-    log_obj = Logger(args.log)
+    log_obj = Logger(args.log, makedir=True)
     variables = vars(args)
     dump_vars(variables, dirname=log_obj.get_dir())
     
@@ -160,6 +182,7 @@ def main():
           stoch=args.stoch,
           cos=args.cos,
           fm=args.fm,
+          fa=args.fa,
           inter=args.intermediate,
           nhidden=args.nhidden,
           log_obj=log_obj,)

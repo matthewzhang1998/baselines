@@ -11,8 +11,9 @@ import os.path as osp
 import numpy as np
 from collections import deque
 from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
-from baselines.feudal.runners import FeudalRunner, I2ARunner
-from baselines.program.decode import decode
+from baselines.feudal.runners import FeudalRunner, I2ARunner, TestRunner
+from baselines.program.decode import decode_index, decode
+from baselines.program.mlogger import Logger
 
 PATH="tmp/build/graph"
     
@@ -20,7 +21,7 @@ def sort_by_state(scalars, encoded_states, env):
     scalar_dict = {}
     for i in range(len(encoded_states)):
         for j in range(encoded_states[i].shape[0]):
-            state = decode(encoded_states[i][j])
+            state = str(decode(encoded_states[i][j]))
             if state in scalar_dict:
                 scalar_dict[state][1] = (scalar_dict[state][0] * scalar_dict[state][1] + scalars[i][j][1]) \
                                         /(scalar_dict[state][0] + 1)
@@ -28,6 +29,12 @@ def sort_by_state(scalars, encoded_states, env):
             else:
                 scalar_dict[state] = [1,scalars[i][j][1]]
     return scalar_dict
+
+def decode_trajectories(states):
+    trajectory = []
+    for i in range(states.shape[0]):
+        trajectory.append(decode(states[i]))
+    return trajectory
             
 def pad(arr, minsize): # arr must be at least minsize
     nbatch = arr.shape[0]
@@ -108,8 +115,8 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, cos, val, fixed_manager, goal_state, nhidden=64, max_len=100,
-          save_interval=0, log_interval=1,
+          recurrent, cos, val, fixed_manager, fixed_agent, goal_state, nhidden=64, max_len=100,
+          save_interval=0, log_interval=1, test_interval=10, test_env=None,
           logger=None, load_path=None):
     
     if isinstance(lr, float): lr = constfn(lr)
@@ -151,21 +158,28 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         make_model = lambda : RecurrentFeudalModel(policy, env, ob_space, ac_space,
               neplength=neplength, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
+              val=val, cos=cos, fixed_agent=fixed_agent, fixed_network=fixed_manager, goal_state=goal_state,
               encoef=encoef, vcoef=vcoef, nh=nhidden)
     else:
         make_model = lambda : FeudalModel(policy, env, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
-              val=val, cos=cos, fixed_network=fixed_manager, goal_state=goal_state,
+              val=val, cos=cos, fixed_agent=fixed_agent, fixed_network=fixed_manager, goal_state=goal_state,
               encoef=encoef, vcoef=vcoef, nh=nhidden)
     model = make_model()
     if load_path is not None:
         model.load(load_path)
     
     runner = FeudalRunner(env=env, model=model, nsteps=nsteps, 
-                          recurrent=recurrent, fixed_manager=fixed_manager)
+                          recurrent=recurrent, fixed_manager=fixed_manager,
+                          fixed_agent=fixed_agent)
+    test_runner = TestRunner(env=test_env, model=model, 
+                          recurrent=recurrent, fixed_manager=fixed_manager,
+                          fixed_agent=fixed_agent)
     epinfobuf = deque(maxlen=100)
     tfirststart = time.time()
+    
+    state_rew_logger = Logger(dir=logger.dir, output_format=['CSV'], csv_tag='goal_achievements.csv')
+    test_run_logger = Logger(dir=logger.dir, output_format=['TXT'], txt_tag='test_traj.txt')
     
     if not val:
         vre = np.zeros((nhier), dtype=np.float32)
@@ -182,15 +196,17 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         obs, actions, rewards, dones, goals, states, init_goals = (sbi(arr, dones) for arr in
                                         (obs, actions, rewards, dones, goals, states, init_goals))
         
-        
-        
         if not recurrent:
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
             # perform tally for each unique goal
-            inrs_per_goal = sort_by_state(inrs, init_goals, env)
-            
-            for i in inrs_per_goal.items():
-                print('state {} - rew {}'.format(i[0], i[1][1]))
+#            if fixed_manager:
+#                inrs_per_goal = sort_by_state(inrs, init_goals, env)
+#            
+#                for index,i in enumerate(inrs_per_goal.items()):
+#                    state_rew_logger.logkv("{}".format(index), i[1][1])
+#                
+#                    
+#                state_rew_logger.dumpkvs()
             
             obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
                 map(pack,(obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals))
@@ -232,7 +248,15 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in feed_vars)
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
-        
+
+        if update == 1 or update % test_interval == 0:
+            obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = test_runner.run()
+            trajectories = decode_trajectories(obs)
+            test_run_logger.logkv('update_number', update)
+            for i in range(len(trajectories)):
+                test_run_logger.logkv('state_{}'.format(i), '{}'.format(trajectories[i]))
+            test_run_logger.dumpkvs()
+
         lossvals = np.mean(mblossvals, axis=0)
         tnow = time.time()
         fps = int(nbatch / (tnow - tstart))
@@ -243,7 +267,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
                 for i in range(1, nhier):
-                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]*neplength/nh(nhier - i))
+                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]/nh(nhier - i))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)

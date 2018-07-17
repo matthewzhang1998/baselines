@@ -81,6 +81,12 @@ class DummyVecEnv(VecEnv):
             goal.append(self.envs[e].env.get_goal_state(obs[e]))
         return np.array(goal, np.float32) 
     
+    def action(self, obs):
+        acts = []
+        for e in range(self.num_envs):
+            acts.append(self.envs[e].env.get_action(obs[e]))
+        return np.array(acts)
+    
     def _obs_from_buf(self):
         if self.hier==True:
             return (self.buf_tokens[None], self.buf_obs[None])

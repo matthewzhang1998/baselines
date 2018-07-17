@@ -9,7 +9,7 @@ import tensorflow as tf
 import numpy as np
 from baselines.feudal.distributions import make_pdtype
 from baselines.feudal.networks import FeudalNetwork, RecurrentFeudalNetwork, \
-                                     FixedManagerNetwork
+                                     FixedManagerNetwork, FixedActorNetwork
 from baselines.feudal.i2a_helpers import Encoder, MBPolicy, MFPolicy, EnvironmentModel
 
 from gym import spaces
@@ -26,7 +26,7 @@ class FeudalModel(object):
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
                  lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
                  activ=tf.nn.relu, cos=False, fixed_network=0, 
-                 goal_state=None):
+                 goal_state=None, fixed_agent = 0):
         '''
         INPUTS:
            policy - encoding function for input states
@@ -46,6 +46,8 @@ class FeudalModel(object):
         '''
         
         self.sess = tf.get_default_session() # get session
+        self.fixed_agent = fixed_agent
+        self.fixed_network = fixed_network
         if fixed_network:
             self.manager_net = FixedManagerNetwork
             self.maxdim = policy.out_shape
@@ -56,6 +58,10 @@ class FeudalModel(object):
             self.maxdim = ngoal(1)
             self.initdim = self.maxdim
             self.manager_net = FeudalNetwork # get single network object
+        if fixed_agent:
+            self.actor_net = FixedActorNetwork
+        else:
+            self.actor_net = FeudalNetwork
         self.net = FeudalNetwork
         self.recurrent=recurrent
         self.val=val
@@ -126,13 +132,14 @@ class FeudalModel(object):
             nstate.append(self.networks[t].nstate)
             if cos:
                 adv = self.ADV[:,t] * tsim[t]
+                ploss += tf.reduce_mean(-adv)
             else:
                 adv = self.ADV[:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
-            ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
-            pl1 = -adv * ratio
-            pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
-            ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
+                ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
+                pl1 = -adv * ratio
+                pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
+                ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
             if val:
                 val.append(self.networks[t].vf)
                 vclip = self.OLDVALUES[:,t] + tf.clip_by_value(val[t]-self.OLDVALUES[:,t],
@@ -146,7 +153,7 @@ class FeudalModel(object):
         gam.append(g(nhier-1))
         pdtype = make_pdtype(ac_space)
         self.nout = self.maxdim if fixed_network else ngoal(1)
-        self.networks.append(self.net(mgoal=goal[nhier-1],
+        self.networks.append(self.actor_net(mgoal=goal[nhier-1],
                                       state=em_h1,
                                       pstate=self.STATES[:,nhier-1,:],
                                       nin=self.nout,
@@ -155,6 +162,7 @@ class FeudalModel(object):
                                       ngoal=ngoal(0),
                                       pdtype=pdtype,
                                       manager=False,
+                                      recurrent=recurrent,
                                       nhist=nhist(0),
                                       nbatch=nbatch,
                                       val=val))
@@ -303,7 +311,7 @@ class RecurrentFeudalModel(object):
     def __init__(self, policy, env, ob_space, ac_space, neplength=100, nhier=2, max_grad=0.5,
                  ngoal=lambda x:max(8, int(64/(2**x))), recurrent=False, 
                  g=lambda x:1-0.25**(x+1), nhist=lambda x:4**x, val=True,
-                 lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x,
+                 lr=1e-4, vcoef=0.5, encoef=0, nh=64, b=lambda x:0.3 * x, fixed_agent=0,
                  activ=tf.nn.relu, cos=False, fixed_network=False, goal_state=None):
         '''
         INPUTS:
@@ -335,7 +343,10 @@ class RecurrentFeudalModel(object):
             self.manager_net = RecurrentFeudalNetwork
             self.maxdim = ngoal(1)
             self.initdim = self.maxdim
-        self.net = RecurrentFeudalNetwork
+        if fixed_agent:
+            self.actor_net = FixedActorNetwork
+        else:
+            self.actor_net = RecurrentFeudalNetwork
         self.recurrent=recurrent
         self.val=val
         self.networks=[] # network array
@@ -426,13 +437,14 @@ class RecurrentFeudalModel(object):
         gam.append(g(nhier-1))
         pdtype = make_pdtype(ac_space, r=True)
         self.nout = self.maxdim if fixed_network else ngoal(1)
-        self.networks.append(self.net(mgoal=goal[nhier-1],
+        self.networks.append(self.actor_net(mgoal=goal[nhier-1],
                                       state=em_h1,
                                       pstate=self.STATES[:,:,nhier-1,:],
                                       nin=self.nout,
                                       neplength=neplength,
                                       name=0,
                                       nh=nh,
+                                      recurrent=recurrent,
                                       ngoal=ngoal(0),
                                       pdtype=pdtype,
                                       manager=False,
