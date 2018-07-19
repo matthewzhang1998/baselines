@@ -68,12 +68,12 @@ class FeudalRunner(AbstractEnvRunner):
             mb_pi.append(pi)
             mb_actions.append(actions[0])
             mb_dones.append(self.dones)
+            mb_init_goals.append(self.init_goal)
             if self.dones[0] == True: # lose parallelism again
                 self.states = self.model.initial_state
             self.obs[:], rewards, self.dones, infos = self.env.step(actions)
             if self.fixed_manager:
                 self.init_goal = self.env.goal(self.obs)
-            mb_init_goals.append(self.init_goal)
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
@@ -124,6 +124,7 @@ class TestRunner(AbstractEnvRunner):
         
         
     def run(self):
+        from baselines.program.decode import decode
         mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, mb_states, \
                     mb_init_goals = [],[],[],[],[],[],[],[]
         epinfos = []
@@ -143,9 +144,9 @@ class TestRunner(AbstractEnvRunner):
             mb_actions.append(actions[0])
             mb_dones.append(self.dones)
             self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            mb_init_goals.append(self.init_goal)
             if self.fixed_manager:
                 self.init_goal = self.env.goal(self.obs)
-            mb_init_goals.append(self.init_goal)
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)

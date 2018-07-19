@@ -21,7 +21,7 @@ def num(l):
     N_NUMS = len(l)
     val = 0
     for i in range(N_NUMS):
-        val += l[i] * (N_NUMS ** (i))
+        val += l[i] * (N_NUMS ** (N_NUMS - 1 - i))
     return val
 
 def sort_by_state(scalars, encoded_states, env):
@@ -141,7 +141,7 @@ def safe_vstack(arr, dim1):
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
           recurrent, cos, val, fixed_manager, fixed_agent, goal_state, nhidden=64, max_len=100,
-          save_interval=0, log_interval=1, test_interval=10, test_env=None,
+          save_interval=0, log_interval=1, test_interval=1, test_env=None,
           logger=None, load_path=None):
     
     if isinstance(lr, float): lr = constfn(lr)
@@ -233,8 +233,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 state_rew_logger.dumpkvs()
                 
                 inrs_per_timestep = sort_by_time(inrs, neplength)
-                for i in enumerate(inrs_per_timestep.items()):
-                    time_rew_logger.logkv("{}".format(i[0]), i[1][1])
+                for index,i in enumerate(inrs_per_timestep.items()):
+                    time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
             
             obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
@@ -280,11 +280,14 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
 
         if update == 1 or update % test_interval == 0:
             obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
-            trajectories = decode_trajectories(obs)
+            obs, actions, rewards, dones, goals, states, init_goals = ([arr] for arr in (obs, actions, rewards, dones, goals, states, init_goals))
+            rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            trajectories = decode_trajectories(obs[0])
             test_run_logger.logkv('update_number', update)
             for i in range(len(trajectories)):
                 test_run_logger.logkv('state_{}'.format(i), '{}'.format(trajectories[i]))
-                test_run_logger.logkv('goal_{}'.format(i), '{}'.format(decode(init_goals[i])))
+                test_run_logger.logkv('goal_{}'.format(i), '{}'.format(decode(init_goals[0][i])))
+                test_run_logger.logkv('inr_{}'.format(i), '{}'.format(inrs[0][i]))
             test_run_logger.dumpkvs()
 
         lossvals = np.mean(mblossvals, axis=0)
@@ -297,7 +300,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
                 for i in range(1, nhier):
-                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i]/nh(nhier - i))
+                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i])
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)
