@@ -181,12 +181,14 @@ class FeudalModel(object):
             vf_losses1 = tf.square(val[nhier-1] - self.R[:,nhier-1])
             vf_losses2 = tf.square(vclip - self.R[:,nhier-1])
             vloss += .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
+        
+        self.pi=self.networks[nhier-1].pi
         self.approxkl = .5 * tf.reduce_mean(tf.square(nlp[nhier-1] - self.OLDNLPS[:,nhier-1]))
         self.clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), self.CLIPRANGE[nhier-1])))
         
         entropy += tf.reduce_mean(self.networks[nhier-1].pd.entropy())
         
-        self.pi=self.networks[nhier-1].pi
+        
         if nhier > 1:  
             self.goals = tf.transpose(tf.stack(goal[1:]),[1,0,2])
         else:
@@ -210,7 +212,12 @@ class FeudalModel(object):
         self.inrmean = tf.reduce_mean(self.inr)
         self.loss = self.ploss + self.vloss * vcoef - self.entropy * encoef
         self.loss_names = ["entropy", "policy loss", "value loss", "approxkl", "clipfrac"]
-        optimizer = tf.train.AdamOptimizer(lr)
+        
+        with tf.variable_scope("level0/pi", reuse=True):
+            self.weight_1 = tf.reduce_mean(tf.get_variable("w"))
+            self.bias_1 = tf.reduce_mean(tf.get_variable("b"))
+            
+        optimizer = tf.train.AdamOptimizer(self.LR)
         if max_grad > 0:
             params = tf.trainable_variables()
             grads = tf.gradients(self.loss, params)
@@ -250,6 +257,10 @@ class FeudalModel(object):
               self.OLDGOALS:goals,
               self.OLDNLPS:nlps,
               self.OLDVALUES:vfs}
+        
+        weights, bias = self.sess.run([self.weight_1, self.bias_1], feed)
+        #print(weights, bias)
+        _, test_nlps = self.ifv(obs, acts, goals, states[0], init_goal)
         return self.sess.run([self.entropy,
                               self.ploss,
                               self.vloss,

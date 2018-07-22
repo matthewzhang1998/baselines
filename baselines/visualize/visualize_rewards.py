@@ -58,7 +58,6 @@ def visualize_goal_progress(csv, out=None):
         ax.set_yticklabels([list_mod(i)[-AX_1:] for i in range(N_NUMS ** AX_1)])
         ax.set_xticks(np.arange(N_NUMS ** AX_2))
         ax.set_xticklabels([list_mod(i)[-AX_2:] for i in range(N_NUMS ** AX_2)])
-        ax.set
         rew_plot.savefig(osp.join(out, '{}.png'.format(t)))
         
 def arg_parser():
