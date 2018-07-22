@@ -14,7 +14,7 @@ from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
 from baselines.feudal.runners import FeudalRunner, I2ARunner, TestRunner
 from baselines.program.decode import decode_index, decode
 from baselines.program.mlogger import Logger
-from baselines.feudal.utils import sf01
+from baselines.feudal.utils import sf01, fl01
 
 PATH="tmp/build/graph"
     
@@ -247,13 +247,13 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
             rewards, vfs, nlps, inrs = map(np.asarray,(rewards, vfs, nlps, inrs))
-            number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
-                vfs, nlps, inrs = (sf01(arr) for arr in (obs, actions, dones,
+                vfs, nlps, inrs = (fl01(arr) for arr in (obs, actions, dones,
                                    mbpi, init_goals, goals, states, rewards,
                                    vfs, nlps, inrs))
+            number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             mean_inr = np.mean(inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
