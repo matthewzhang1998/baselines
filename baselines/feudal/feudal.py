@@ -282,7 +282,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     #slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
-                    mblossvals.append(model.train(lrnow*0., cliprangenow, *slices))
+                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
             
             ttrain = time.time()
             print(ttrain - tstats)
