@@ -14,6 +14,7 @@ from baselines.feudal.models import FeudalModel, RecurrentFeudalModel, I2AModel
 from baselines.feudal.runners import FeudalRunner, I2ARunner, TestRunner
 from baselines.program.decode import decode_index, decode
 from baselines.program.mlogger import Logger
+from baselines.feudal.utils import sf01
 
 PATH="tmp/build/graph"
     
@@ -159,12 +160,12 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     neplength = max_len
     ob_space = env.observation_space
     ac_space = env.action_space
-    assert (nenvs * nsteps)%max_len == 0
+    assert nsteps%max_len == 0
     if recurrent:
-        nbatch = (nenvs * nsteps)//max_len
+        nbatch = nsteps//max_len
     else:
-        nbatch = (nenvs * nsteps)
-    nupdates = tsteps//(nenvs * nsteps)
+        nbatch = nsteps
+    nupdates = tsteps//nsteps
     nbatch_train = nbatch // nmb
     
     def ng(k):
@@ -194,10 +195,10 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
     if load_path is not None:
         model.load(load_path)
     
-    runner = FeudalRunner(env=env, model=model, nsteps=nsteps, 
+    runner = FeudalRunner(env=env, model=model, nsteps=max_len, 
                           recurrent=recurrent, fixed_manager=fixed_manager,
                           fixed_agent=fixed_agent)
-    test_runner = TestRunner(env=test_env, model=model, 
+    test_runner = FeudalRunner(env=test_env, model=model, nsteps=max_len,
                           recurrent=recurrent, fixed_manager=fixed_manager,
                           fixed_agent=fixed_agent)
     epinfobuf = deque(maxlen=100)
@@ -217,15 +218,17 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
         obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = runner.run()
+        trun = time.time()
+        print(tstart - trun)
         epinfobuf.extend(epinfos)
         mblossvals = []
-        obs, actions, rewards, dones, goals, states, init_goals = (sbi(arr, dones) for arr in
-                                        (obs, actions, rewards, dones, goals, states, init_goals))
         
         if not recurrent:
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            tstats = time.time()
+            print(trun - tstats)
             #perform tally for each unique goal
-            if fixed_manager:
+            if fixed_manager and nhier > 1:
                 inrs_per_goal = sort_by_state(inrs, init_goals, env)
             
                 for index,i in enumerate(inrs_per_goal.items()):
@@ -236,9 +239,11 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for index,i in enumerate(inrs_per_timestep.items()):
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
-            
-            obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals = \
-                map(pack,(obs,actions,rewards,dones,goals,nlps,vfs,states,inrs,init_goals))
+            rewards, vfs, nlps, inrs = map(pack,(rewards, vfs, nlps, inrs))
+            states = states[:,np.newaxis,:]
+            states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
+            obs, actions, dones, mbpi, init_goals, goals, states = \
+                (sf01(arr) for arr in (obs, actions, dones, mbpi, init_goals, goals, states))
             mean_inr = np.mean(inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
@@ -255,6 +260,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+            
+            ttrain = time.time()
+            print(tstats - ttrain)
 
         else: # recurrent version
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
@@ -280,7 +288,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
 
         if update == 1 or update % test_interval == 0:
             obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
-            obs, actions, rewards, dones, goals, states, init_goals = ([arr] for arr in (obs, actions, rewards, dones, goals, states, init_goals))
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
             trajectories = decode_trajectories(obs[0])
             test_run_logger.logkv('update_number', update)

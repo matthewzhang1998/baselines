@@ -59,16 +59,14 @@ class FixedManagerNetwork(object):
                     gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                
-                cos = tf.reduce_sum(tf.losses.cosine_distance(nsv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
-                rew += 1 - cos
+                rew += tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
             
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
-            sim = 1 - tf.reduce_sum(tf.losses.cosine_distance(nfv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
+            sim = tf.reduce_sum(tf.multiply(nfv,ngv), axis=-1)
             return sim
         
         if recurrent:
@@ -142,14 +140,13 @@ class FeudalNetwork(object):
                 gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                cos = tf.reduce_sum(tf.losses.cosine_distance(nsv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
-                rew += 1 - cos
+                rew += tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
-            sim = tf.reduce_sum(tf.losses.cosine_distance(nfv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
+            sim = tf.reduce_sum(tf.multiply(nfv,ngv), axis=-1)
             return sim
         
         self.vf = vout
@@ -176,7 +173,6 @@ class RecurrentFeudalNetwork(object):
         nph=nh
         self.manager=manager
         self.name=name
-        self.initial_state=None
         nout = ngoal if manager else nh
         self.pdtype = pdtype
         
@@ -210,14 +206,13 @@ class RecurrentFeudalNetwork(object):
                 gvec = gpad[:,nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                cos = tf.reduce_sum(tf.losses.cosine_distance(nsv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
-                rew += 1 - cos
+                rew += tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
             return rew
         
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)
-            sim = tf.reduce_sum(tf.losses.cosine_distance(nfv, ngv, axis=-1, reduction=tf.losses.Reduction.NONE), axis=-1)
+            sim = tf.reduce_sum(tf.multiply(nfv,ngv), axis=-1)
             return sim
         
         self.vf = vout

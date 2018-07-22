@@ -194,7 +194,7 @@ class FeudalModel(object):
         if self.recurrent:
             self.nstate=tf.stack(nstate)
         else:
-            self.nstate=tf.zeros(shape=(nhier, nh*2))
+            self.nstate=tf.zeros(shape=(nbatch, nhier, nh*2))
         self.inr = tf.transpose(tf.stack(inr))
         self.nlp = tf.transpose(tf.stack(nlp))
         if val:
@@ -228,7 +228,7 @@ class FeudalModel(object):
               goals, nlps,
               vfs, states,
               init_goal=None):
-        nbatch=obs.shape[0]
+        nbatch = obs.shape[0]
         if init_goal is None: init_goal = np.tile(self.init_goal,(nbatch,1))
         else: init_goal = init_goal
         if isinstance(cliprange, float): cliprange = np.array([cliprange/(2 ** i) for i in range(self.nhier)])
@@ -282,12 +282,13 @@ class FeudalModel(object):
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
         else: goal = init_goal
-        goal=np.tile(goal, (obs.shape[0],1))
-        feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:goal}
+        if init_goal.shape[0] != obs.shape[0]:
+            goal=np.tile(goal, (obs.shape[0],1))
+        feed={self.STATES:state, self.OBS:obs, self.INITGOALS:goal}
         return self.sess.run([self.act, self.goals, self.pi, self.nstate], feed)
             
     def rewards(self, obs, state, init_goal=None):
-        feed={self.STATES:state, self.OBS:obs, self.INITGOALS:init_goal}
+        feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:init_goal}
         rew = self.sess.run([self.inr], feed)[0]
         return rew
     
@@ -296,7 +297,7 @@ class FeudalModel(object):
             goal = np.reshape(goal, [obs.shape[0], self.nhier-1, self.maxdim])
         else:
             goal = np.zeros((obs.shape[0], self.nhier - 1, self.maxdim))
-        feed={self.STATES:state, self.OBS:obs, self.OLDACTIONS:acts, self.OLDGOALS:goal, self.INITGOALS:init_goal}
+        feed={self.STATES:[state], self.OBS:obs, self.OLDACTIONS:acts, self.OLDGOALS:goal, self.INITGOALS:init_goal}
         return self.sess.run([self.vf, self.nlp], feed)
     
     def extend(self):
