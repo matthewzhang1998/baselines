@@ -265,10 +265,10 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             if nhier == 1:
                 goals = np.zeros((nbatch, 0, model.maxdim))
             for _ in range(noe):
-                #np.random.shuffle(inds)
+                np.random.shuffle(inds)
                 for start in range(0, nbatch, nbatch_train):
-                    #end = start + nbatch_train
-                    mbinds = inds[0:nbatch_train]
+                    end = start + nbatch_train
+                    mbinds = inds[start:end]
                     mbinds_deleted = [i for i in mbinds if i not in invalid_inds]
                     slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
