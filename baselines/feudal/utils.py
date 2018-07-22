@@ -38,3 +38,12 @@ def fc(x, scope, nh, *, init_scale=1.0, init_bias=0.0, r=False):
             w = tf.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
             b = tf.get_variable("b", [nh], initializer=tf.constant_initializer(init_bias))
             return tf.matmul(x, w)+b
+        
+def sf01(arr):
+    """
+    swap and then flatten axes 0 and 1
+    """
+    s = arr.shape
+    if len(arr.shape) == 1:
+        return arr
+    return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])

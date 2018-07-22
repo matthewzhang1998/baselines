@@ -5,17 +5,11 @@ Created on Tue Jul  3 10:20:22 2018
 
 @author: matthewszhang
 """
+import time
 import numpy as np
 from baselines.common.runners import AbstractEnvRunner
-
-def sf01(arr):
-    """
-    swap and then flatten axes 0 and 1
-    """
-    s = arr.shape
-    if len(arr.shape) == 1:
-        return arr
-    return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
+from baselines.feudal.utils import sf01
+from baselines.program.decode import decode
 
 class FeudalRunner(AbstractEnvRunner):
     # to do -> work on making a recurrent version
@@ -27,51 +21,56 @@ class FeudalRunner(AbstractEnvRunner):
         self.recurrent=recurrent
         self.model = model
         nenv = env.num_envs
-        self.batch_ob_shape = (nenv*nsteps,) + env.observation_space.shape
         self.obs = np.zeros((nenv,) + env.observation_space.shape, dtype=np.float32)
         self.obs[:] = env.reset()
         self.nsteps = nsteps
-        self.states = model.initial_state
+        self.states = np.tile(model.initial_state, (nenv, *np.ones_like(model.initial_state.shape)))
         self.dones = [False for _ in range(nenv)]
         if self.fixed_manager:
             self.init_goal = env.goal(self.obs)
         else:
             self.init_goal = [model.init_goal] * nenv
-
         
-        # not sure why but one step is required at the beginning
-        if self.recurrent:
-            actions, goal, pi, self.states = self.model.step(self.obs, self.states, self.init_goal)
-            if self.fixed_agent:
-                actions = env.action(self.obs)
-            self.states = self.states[0]
-            self.obs[:], rewards, self.dones, _ = self.env.step(actions) # perform 1 step, safety
-            if self.fixed_manager:
-                self.init_goal = env.goal(self.obs)
+        # extra step in the beginning
+#        actions, goal, pi, self.states = self.model.step(self.obs, self.states, self.init_goal)
+#        if self.fixed_agent:
+#            actions = env.action(self.obs)
+#        if self.recurrent:
+#            self.states = self.states
+#        self.obs[:], rewards, self.dones, _ = self.env.step(actions) # perform 1 step, safety
+#        print("pre_2", decode(self.obs[0]))
+#        if self.fixed_manager:
+#            self.init_goal = env.goal(self.obs)
         
     def run(self):
-        mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, mb_states, \
-                    mb_init_goals = [],[],[],[],[],[],[],[]
+        mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, \
+                    mb_init_goals = [],[],[],[],[],[],[]
         epinfos = []
+        t_model = 0
+        t_run = 0
+        mb_states = self.states
         for i in range(self.nsteps):
-            mb_states.append(self.states)
+            t_start = time.time()
             actions, goal, pi, self.states = self.model.step(self.obs, self.states, self.init_goal)
+            t_step = time.time()
+            t_model += (t_step - t_start)
             if self.fixed_agent:
                 actions = self.env.action(self.obs)
             if self.recurrent:
                 self.states = self.states[0]
             mb_obs.append(self.obs.copy())
             if self.recurrent:
-                mb_goals.append(goal[0][0])
+                mb_goals.append(goal)
             else:
-                mb_goals.append(goal[0])
+                mb_goals.append(goal)
+            
             mb_pi.append(pi)
-            mb_actions.append(actions[0])
+            mb_actions.append(actions)
             mb_dones.append(self.dones)
             mb_init_goals.append(self.init_goal)
-            if self.dones[0] == True: # lose parallelism again
-                self.states = self.model.initial_state
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            t_env = time.time()
+            self.obs[:], rewards, self.dones, infos = self.env.step(actions)            
+            t_run += (t_env - t_step)
             if self.fixed_manager:
                 self.init_goal = self.env.goal(self.obs)
             for info in infos:
@@ -89,8 +88,13 @@ class FeudalRunner(AbstractEnvRunner):
         mb_states = np.asarray(mb_states, dtype=np.float32)
         # lose environment parallelism here -> need to fix
         
-        return (*map(sf01, (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals)),
-                mb_goals, mb_states, epinfos)
+        mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals \
+            = (np.swapaxes(arr,0,1) for arr in
+            (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals))
+        print(t_model, t_run)
+        
+        return mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals,\
+                mb_goals, mb_states, epinfos
         
 class TestRunner(AbstractEnvRunner):
         # to do -> work on making a recurrent version
@@ -124,7 +128,6 @@ class TestRunner(AbstractEnvRunner):
         
         
     def run(self):
-        from baselines.program.decode import decode
         mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, mb_states, \
                     mb_init_goals = [],[],[],[],[],[],[],[]
         epinfos = []

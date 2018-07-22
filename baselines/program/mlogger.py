@@ -114,7 +114,6 @@ class TXTOutputFormat(Writer):
         self.file = open(filename, 'w+t')
         
     def writekvs(self, kvs):
-        print(self.filename, self.file)
         for key, item in kvs.items():
             self.file.write('{}: {}'.format(key, item))
             self.file.write('\n')

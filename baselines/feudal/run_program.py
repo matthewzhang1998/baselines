@@ -74,7 +74,7 @@ def train(env_id,
         env.set_length(max_len)
         env.set_test(0)
         env.set_intermediate(inter, nhist)
-        env = bench.Monitor(env, logger.get_dir()) # deprecated logger, will switch out
+        env = bench.Monitor(env, None) # deprecated logger, will switch out
         env.seed(seed)
         return env
     
@@ -97,7 +97,7 @@ def train(env_id,
     if fm:
         goal_state = make_env().env.get_goal_state(None)
     
-    env = DummyVecEnv([make_env])
+    env = DummyVecEnv([make_env]*(nsteps//max_len))
     env = VecNormalize(env)
     
     test_env = DummyVecEnv([make_test_env])
