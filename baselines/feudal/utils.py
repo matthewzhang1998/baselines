@@ -47,3 +47,9 @@ def sf01(arr):
     if len(arr.shape) == 1:
         return arr
     return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
+
+def fl01(arr):
+    s = arr.shape
+    if len(arr.shape) == 1:
+        return arr
+    return arr.reshape(s[0] * s[1], *s[2:])
