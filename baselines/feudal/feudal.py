@@ -218,14 +218,14 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         cliprangenow = cliprange(frac)
         obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = runner.run()
         trun = time.time()
-        print(tstart - trun)
+        print(trun - tstart)
         epinfobuf.extend(epinfos)
         mblossvals = []
         
         if not recurrent:
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
             tstats = time.time()
-            print(trun - tstats)
+            print(tstats - trun)
             #perform tally for each unique goal
             if fixed_manager and nhier > 1:
                 inrs_per_goal = sort_by_state(inrs, init_goals, env)
@@ -261,7 +261,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
             
             ttrain = time.time()
-            print(tstats - ttrain)
+            print(ttrain - tstats)
 
         else: # recurrent version
             rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
