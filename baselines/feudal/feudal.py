@@ -156,7 +156,6 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             return np.asarray(arr, dtype=np.float32)
         cliprange = cr    
 
-    nenvs = env.num_envs
     neplength = max_len
     ob_space = env.observation_space
     ac_space = env.action_space
@@ -307,7 +306,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
                 for i in range(1, nhier):
-                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i])
+                    logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i] * neplength/(neplength - 1))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)
