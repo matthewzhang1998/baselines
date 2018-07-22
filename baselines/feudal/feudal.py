@@ -56,6 +56,13 @@ def sort_by_time(scalars, neplength):
                     continue
     return scalar_dict
 
+def invalids_by_goal(goals):
+    invalids = []
+    for i in range(goals.shape[0]):
+        if np.all(goals[i] == 0):
+            invalids.append(i)
+    return invalids
+
 def decode_trajectories(states):
     trajectory = []
     for i in range(states.shape[0]):
@@ -101,6 +108,7 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     mb_advs = np.zeros_like(rews)
     lastgaelam = 0
     nsteps = rews.shape[0]
+    rews = np.concatenate([rews, [np.zeros_like(rews[0])]], axis=0) # add a zero column at end
     nextvalues=vals[-1:,]
     for t in reversed(range(nsteps)):
         if t == nsteps - 1:
@@ -109,7 +117,7 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
         else:
             nextnonterminal = 1.0 - dones[t+1]
             nextvalues = vals[t+1]
-        delta = rews[t] + gam * nextvalues * nextnonterminal - vals[t]
+        delta = rews[t+1] + gam * nextvalues * nextnonterminal - vals[t]
         mb_advs[t] = lastgaelam = delta + gam * lam * nextnonterminal * lastgaelam
         
     mb_returns = mb_advs + vals
@@ -244,11 +252,14 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for index,i in enumerate(inrs_per_timestep.items()):
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
-            rewards, vfs, nlps, inrs, sparse_inrs = map(pack,(rewards, vfs, nlps, inrs, sparse_inrs))
+            rewards, vfs, nlps, inrs, sparse_inrs = map(np.asarray,(rewards, vfs, nlps, inrs, sparse_inrs))
+            number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
-            obs, actions, dones, mbpi, init_goals, goals, states = \
-                (sf01(arr) for arr in (obs, actions, dones, mbpi, init_goals, goals, states))
+            obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
+                vfs, nlps, inrs = (sf01(arr) for arr in (obs, actions, dones,
+                                   mbpi, init_goals, goals, states, rewards,
+                                   vfs, nlps, inrs))
             mean_inr = np.mean(inrs, axis=0)
             mean_sparse_inr = np.mean(sparse_inrs, axis=0)
             if not val:
@@ -257,14 +268,18 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             actions = actions.flatten() #safety
             inds = np.arange(nbatch)
+            invalid_inds = invalids_by_goal(init_goals)
             if nhier == 1:
                 goals = np.zeros((nbatch, 0, model.maxdim))
             for _ in range(noe):
-                np.random.shuffle(inds)
+                #np.random.shuffle(inds)
                 for start in range(0, nbatch, nbatch_train):
-                    end = start + nbatch_train
-                    mbinds = inds[start:end]
-                    slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
+                    #end = start + nbatch_train
+                    #mbinds = inds[start:end]
+                    mbinds = inds[0:nbatch_train]
+                    mbinds_deleted = [i for i in mbinds if i not in invalid_inds]
+                    slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
+                    #slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
                     mblossvals.append(model.train(lrnow*0., cliprangenow, *slices))
             
@@ -289,9 +304,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 np.random.shuffle(inds)
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
-                    mbinds = inds[start:end]
+                    mbinds = inds[0:nbatch_train]
                     slices = (arr[mbinds] for arr in feed_vars)
-                    mblossvals.append(model.train(lrnow*0., cliprangenow, *slices))
+                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         if update == 1 or update % test_interval == 0:
             obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
@@ -302,6 +317,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 test_run_logger.logkv('state_{}'.format(i), '{}'.format(trajectories[i]))
                 test_run_logger.logkv('goal_{}'.format(i), '{}'.format(decode(init_goals[0][i])))
                 test_run_logger.logkv('inr_{}'.format(i), '{}'.format(inrs[0][i]))
+                test_run_logger.logkv('act_{}'.format(i), '{}'.format(actions[0][i]))
+                test_run_logger.logkv('rew_{}'.format(i), '{}'.format(rewards[0][i]))
             test_run_logger.dumpkvs()
 
         lossvals = np.mean(mblossvals, axis=0)
@@ -313,6 +330,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("nupdates", update)
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
+                logger.logkv("exact_matches", number_of_correct)
                 for i in range(1, nhier):
                     logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i] * neplength/(neplength - 1))
                     logger.logkv('intrinsic_reward_sparse_{}'.format(i), mean_sparse_inr[i] * neplength/(neplength - 1))
