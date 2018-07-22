@@ -239,6 +239,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
             rewards, vfs, nlps, inrs = map(pack,(rewards, vfs, nlps, inrs))
+            number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states = \
@@ -305,6 +306,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("nupdates", update)
                 logger.logkv("total_timesteps", update*nbatch)
                 logger.logkv("fps", fps)
+                logger.logkv("exact_matches", number_of_correct)
                 for i in range(1, nhier):
                     logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i] * neplength/(neplength - 1))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
