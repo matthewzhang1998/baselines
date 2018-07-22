@@ -59,8 +59,29 @@ class FixedManagerNetwork(object):
                     gvec = gpad[nhist-t-1:-(t+1),:]
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                rew += tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
+                cosine_dist = tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
+                #rew = tf.Print(rew, [cosine_dist, tf.shape(cosine_dist)])
+                rew += cosine_dist
+            print("bcs shape: {}".format(rew.get_shape()))
             
+            return rew
+
+        def sparse_bcs(state, spad, gpad, nhist, axis=0):
+            rew = tf.fill([nbatch], 0.0)
+            for t in range(nhist):
+                if axis==1:                    
+                    svec = state - spad[:,nhist-t-1:-(t+1),:]
+                    gvec = gpad[:,nhist-t-1:-(t+1),:]
+                else:
+                    svec = state - spad[nhist-t-1:-(t+1),:]
+                    gvec = gpad[nhist-t-1:-(t+1),:]
+                delta_gs = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
+                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
+                delta_gs *= (1.-zero_mask)
+                #rew = tf.Print(rew, [delta_gs, tf.shape(delta_gs)])
+                rew += delta_gs
+                #rew += tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
+            print("sparse_bcs shape: {}".format(rew.get_shape()))
             return rew
         
         def fcs(fvec, gvec, nhist):
@@ -79,6 +100,7 @@ class FixedManagerNetwork(object):
             spad = tf.pad(self.state, pad, "CONSTANT")
             gpad = tf.pad(self.aout, pad, "CONSTANT")
             self.inr = 1/nhist * tf.stop_gradient(bcs(self.state, spad, gpad, nhist, axis=0))
+            self.sparse_inr = 1/nhist * (sparse_bcs(self.state, spad, gpad, nhist, axis=0))
         self.fvec = tf.zeros_like(self.state)
         self.traj_sim = tf.reduce_sum(tf.zeros_like(self.state), axis=-1)
         if recurrent:

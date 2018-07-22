@@ -223,7 +223,13 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         mblossvals = []
         
         if not recurrent:
-            rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            #print(inrs)
+            #print("num of frames: {}".format(len(inrs)))
+            print("num of frames: {}".format(len(sparse_inrs)))
+            #print(sparse_inrs)
+            #print([np.concatenate((i,j), 1) for i,j in zip(inrs, sparse_inrs)])
+            #print(inrs)
             tstats = time.time()
             print(tstats - trun)
             #perform tally for each unique goal
@@ -238,12 +244,13 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for index,i in enumerate(inrs_per_timestep.items()):
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
-            rewards, vfs, nlps, inrs = map(pack,(rewards, vfs, nlps, inrs))
+            rewards, vfs, nlps, inrs, sparse_inrs = map(pack,(rewards, vfs, nlps, inrs, sparse_inrs))
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states = \
                 (sf01(arr) for arr in (obs, actions, dones, mbpi, init_goals, goals, states))
             mean_inr = np.mean(inrs, axis=0)
+            mean_sparse_inr = np.mean(sparse_inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
@@ -258,7 +265,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                    print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
+                    mblossvals.append(model.train(lrnow*0., cliprangenow, *slices))
             
             ttrain = time.time()
             print(ttrain - tstats)
@@ -283,11 +291,11 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     slices = (arr[mbinds] for arr in feed_vars)
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                    mblossvals.append(model.train(lrnow*0., cliprangenow, *slices))
 
         if update == 1 or update % test_interval == 0:
             obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
-            rewards, vfs, nlps, inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
             trajectories = decode_trajectories(obs[0])
             test_run_logger.logkv('update_number', update)
             for i in range(len(trajectories)):
@@ -307,6 +315,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("fps", fps)
                 for i in range(1, nhier):
                     logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i] * neplength/(neplength - 1))
+                    logger.logkv('intrinsic_reward_sparse_{}'.format(i), mean_sparse_inr[i] * neplength/(neplength - 1))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)

@@ -86,6 +86,7 @@ class FeudalModel(object):
         
         nbatch=tf.shape(self.OBS)[0]
         inr = [tf.zeros(shape=(nbatch))]
+        sparse_inr = [tf.zeros(shape=(nbatch))]
         ploss=tf.zeros(1)
         vloss = tf.zeros(1)
         entropy = tf.zeros(1)
@@ -129,6 +130,8 @@ class FeudalModel(object):
             
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
+            sparse_inr.append(self.networks[t].sparse_inr)
+
             nstate.append(self.networks[t].nstate)
             if cos:
                 adv = self.ADV[:,t] * tsim[t]
@@ -196,6 +199,7 @@ class FeudalModel(object):
         else:
             self.nstate=tf.zeros(shape=(nbatch, nhier, nh*2))
         self.inr = tf.transpose(tf.stack(inr))
+        self.sparse_inr = tf.transpose(tf.stack(sparse_inr))
         self.nlp = tf.transpose(tf.stack(nlp))
         if val:
             self.vf = tf.transpose(tf.stack(val))
@@ -258,7 +262,7 @@ class FeudalModel(object):
                               self._trainer], feed)[:-1]
     
     def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvfs, vnlps, vinr =[],[],[],[]
+        vadvs, vvfs, vnlps, vinr, sparse_vinr =[],[],[],[], []
         if init_goal is None:
             init_goal = [None] * len(obs)
             
@@ -271,13 +275,15 @@ class FeudalModel(object):
             else:
                 feed_goal = init_goal
             inr=self.rewards(ob, state, init_goal=feed_goal)
+            sparse_inr=self.sparse_rewards(ob, state, init_goal=feed_goal)
             mbrews=trews*(1-self.beta) + inr*(self.beta)
             mbvfs, mbnlps =self.ifv(ob, act, goal, state, init_goal=feed_goal)
             vadvs.append(mbrews)
             vvfs.append(mbvfs)
             vnlps.append(mbnlps)
             vinr.append(inr)
-        return vadvs, vvfs, vnlps, vinr
+            sparse_vinr.append(sparse_inr)
+        return vadvs, vvfs, vnlps, vinr, sparse_vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -290,6 +296,11 @@ class FeudalModel(object):
     def rewards(self, obs, state, init_goal=None):
         feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:init_goal}
         rew = self.sess.run([self.inr], feed)[0]
+        return rew
+
+    def sparse_rewards(self, obs, state, init_goal=None):
+        feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:init_goal}
+        rew = self.sess.run([self.sparse_inr], feed)[0]
         return rew
     
     def ifv(self, obs, acts, goal, state, init_goal):
@@ -371,6 +382,7 @@ class RecurrentFeudalModel(object):
         
         nbatch=tf.shape(self.OBS)[0]
         inr = [tf.zeros(shape=(nbatch, neplength))]
+        sparse_inr = [tf.zeros(shape=(nbatch, neplength))]
         ploss=tf.zeros(1)
         vloss = tf.zeros(1)
         entropy = tf.zeros(1)
@@ -415,6 +427,7 @@ class RecurrentFeudalModel(object):
             
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
+            sparse_inr.append(self.networks[t].sparse_inr)
             nstate.append(self.networks[t].nstate)
             if cos:
                 adv = self.ADV[:,:,t] * tsim[t]
@@ -483,6 +496,7 @@ class RecurrentFeudalModel(object):
         else:
             self.nstate=tf.zeros(shape=(nbatch, nhier, nh*2))
         self.inr = tf.transpose(tf.stack(inr),[1,2,0])
+        self.sparse_inr = tf.transpose(tf.stack(sparse_inr),[1,2,0])
         self.nlp = tf.transpose(tf.stack(nlp),[1,2,0])
         if val:
             self.vf = tf.transpose(tf.stack(val),[1,2,0])
@@ -543,7 +557,7 @@ class RecurrentFeudalModel(object):
                               self._trainer], feed)[:-1]
     
     def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvfs, vnlps, vinr =[],[],[],[]
+        vadvs, vvfs, vnlps, vinr, sparse_vinr =[],[],[],[], []
         if init_goal is None:
             init_goal = [None] * len(obs)
             
@@ -559,13 +573,15 @@ class RecurrentFeudalModel(object):
                 feed_goal = np.tile(init_goal,(nbatch,1,1))
             
             inr=self.rewards(ob, state, init_goal=feed_goal)
+            sparse_inr=self.sparse_rewards(ob, state, init_goal=feed_goal)
             mbrews=trews*(1-self.beta) + inr*(self.beta)
             mbvfs, mbnlps =self.ifv(ob, act, goal, state, init_goal=feed_goal)
             vadvs.append(mbrews[0,:])
             vvfs.append(mbvfs[0,:])
             vnlps.append(mbnlps[0,:])
             vinr.append(inr[0,:])
-        return vadvs, vvfs, vnlps, vinr
+            sparse_vinr.append(sparse_inr[0,:])
+        return vadvs, vvfs, vnlps, vinr, sparse_vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -690,7 +706,8 @@ class I2AModel(object):
         if max_grad is not None:
             grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad)
         grads = list(zip(grads, params))
-        self.rl_trainer = optimizer.apply_gradients(grads)
+        #self.rl_trainer = optimizer.apply_gradients(grads)
+        self.rl_trainer = tf.no_op()
         
         self.environment_trainer = self.environment_model.trainer
         self.curiosity = self.environment_model.curiosity
