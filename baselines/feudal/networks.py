@@ -62,7 +62,7 @@ class FixedManagerNetwork(object):
                 cosine_dist = tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
                 #rew = tf.Print(rew, [cosine_dist, tf.shape(cosine_dist)])
                 rew += cosine_dist
-            print("bcs shape: {}".format(rew.get_shape()))
+            #print("bcs shape: {}".format(rew.get_shape()))
             
             return rew
 
@@ -81,7 +81,7 @@ class FixedManagerNetwork(object):
                 #rew = tf.Print(rew, [delta_gs, tf.shape(delta_gs)])
                 rew += delta_gs
                 #rew += tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
-            print("sparse_bcs shape: {}".format(rew.get_shape()))
+            #print("sparse_bcs shape: {}".format(rew.get_shape()))
             return rew
         
         def fcs(fvec, gvec, nhist):
@@ -152,7 +152,7 @@ class FeudalNetwork(object):
             
         self.aout = aout
         self.nlp = neglogpout
-        print(self.nlp)
+        #print(self.nlp)
         self.nstate = None
         
         def bcs(state, spad, gpad, nhist):

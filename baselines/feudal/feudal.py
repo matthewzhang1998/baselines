@@ -234,7 +234,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
             #print(inrs)
             #print("num of frames: {}".format(len(inrs)))
-            print("num of frames: {}".format(len(sparse_inrs)))
+            #print("num of frames: {}".format(len(sparse_inrs)))
             #print(sparse_inrs)
             #print([np.concatenate((i,j), 1) for i,j in zip(inrs, sparse_inrs)])
             #print(inrs)
@@ -280,7 +280,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mbinds_deleted = [i for i in mbinds if i not in invalid_inds]
                     slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     #slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
-                    print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
+                    #print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
             
             ttrain = time.time()
