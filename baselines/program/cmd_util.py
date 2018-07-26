@@ -62,6 +62,7 @@ def feudal_arg_parser():
     parser.add_argument('--cliphigh', help='cliprange max', type=float, default=0.2)
     parser.add_argument('--clipinc', help='cliprange hierarchical divisor', type=float, default=1)
     parser.add_argument('--vcoef', help='value coefficient', type=float, default=0.5)
+    parser.add_argument('--enfnx', help='entropy decay {osc, exp, cst}', type=str, default='cst')
     parser.add_argument('--mgn', help='max grad norm', type=float, default=0.5)
     parser.add_argument('--gmax', help='gamma max', type=float, default=1e-2)
     parser.add_argument('--ginc', help='gamma hierarchical divisor', type=float, default=0.25)
@@ -90,6 +91,8 @@ def feudal_arg_parser():
     parser.add_argument('--log', help='writedir', type=str, default='test')
     parser.add_argument('--val', help='value network', type=int, default=0)
     parser.add_argument('--quiet', help='suppress tf', type=int, default=0)
+    parser.add_argument('--ts', help='train_supervised', type=int, default=0)
+    parser.add_argument('--ti', help='test iteration', type=int, default=1)
     
     parser.add_argument('--intermediate', help='intermediate goals', type=int, default=0)
     parser.add_argument('--nhidden', help='number of hidden units', type=int, default=64)

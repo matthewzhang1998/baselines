@@ -5,6 +5,7 @@ Created on Tue Jun  5 15:42:33 2018
 
 @author: matthewszhang
 """
+import numpy as np
 import os
 from baselines.program.cmd_util import feudal_arg_parser
 from baselines import bench, logger
@@ -24,6 +25,7 @@ def train(env_id,
           clipinc,
           vcoef,
           mgn,
+          enfnx,
           gmax,
           fa,
           ginc,
@@ -36,6 +38,8 @@ def train(env_id,
           nginc,
           bmin,
           bmax,
+          ti,
+          ts,
           nhist,
           recurrent,
           pol,
@@ -61,8 +65,10 @@ def train(env_id,
                             inter_op_parallelism_threads=ncpu)
     tf.Session(config=config).__enter__()
     
-    curiosity = {'vime':vime.BayesianInferenceNetwork,
+    curiosity_model = {'vime':vime.BayesianInferenceNetwork,
                 'null':null.NullNetwork}[cur]
+    curiosity = null.NullNetwork
+    
     def make_env():
         set_global_seeds(seed)
         env = gym.make(env_id)
@@ -95,7 +101,7 @@ def train(env_id,
 
     goal_state = None    
     if fm:
-        goal_state = make_env().env.get_goal_state(None)
+        goal_state, _ = make_env().env.get_goal_state(None)
     
     env = DummyVecEnv([make_env]*(nsteps//max_len))
     env = VecNormalize(env)
@@ -104,7 +110,15 @@ def train(env_id,
     test_env = VecNormalize(test_env)
 
     set_global_seeds(seed)
-    
+    eps = 0.01
+    if enfnx == 'xos':
+        encoef_fnx = lambda t: encoef * np.exp(2.5 * (t-1)) * (np.cos(tsteps/nsteps * 0.01 * np.pi * t)**2) + eps
+    elif enfnx == 'osc':
+        encoef_fnx = lambda t: encoef * (np.cos(tsteps/nsteps * 0.01 * np.pi * t)**2)
+    elif enfnx == 'exp':
+        encoef_fnx = lambda t: encoef * np.exp(2.5 * (t-1))
+    elif enfnx == 'cst':
+        encoef_fnx = lambda t: encoef
     policy_params = {'r':recurrent}
 
     policy = {'mlp':MlpPolicy, 'null':NullPolicy, 'cnn':CnnPolicy, 
@@ -112,7 +126,7 @@ def train(env_id,
     learn(env=env,
           tsteps=tsteps,
           nsteps=nsteps,
-          encoef=encoef,
+          encoef=encoef_fnx,
           lr=lr,
           cliphigh=cliphigh,
           clipinc=clipinc,
@@ -137,6 +151,9 @@ def train(env_id,
           fixed_manager=fm,
           nhidden=nhidden,
           goal_state=goal_state,
+          cm=curiosity_model,
+          ts=ts,
+          test_interval=ti,
           #curiosity=curiosity,
           val=val,
           fixed_agent=fa,
@@ -166,12 +183,15 @@ def main():
           lam=args.lam,
           nhier=args.nhier,
           nmb=args.nmb,
+          enfnx=args.enfnx,
           noe=args.noe,
           ngmin=args.ngmin,
           nginc=args.nginc,
           bmin=args.bmin,
           bmax=args.bmax,
           nhist=args.nhist,
+          ti=args.ti,
+          ts=args.ts,
           recurrent=args.recurrent,
           pol=args.pol,
           max_len=args.maxlen,

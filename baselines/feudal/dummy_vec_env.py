@@ -31,6 +31,7 @@ class DummyVecEnv(VecEnv):
             self.keys = [None]
             shapes, dtypes = { None: box.shape }, { None: box.dtype }
         self.buf_obs = { k: np.zeros((self.num_envs,) + tuple(shapes[k]), dtype=dtypes[k]) for k in self.keys }
+        self.final_obs = { k: np.zeros((self.num_envs,) + tuple(shapes[k]), dtype=dtypes[k]) for k in self.keys }
         self.buf_dones = np.zeros((self.num_envs,), dtype=np.bool)
         self.buf_rews  = np.zeros((self.num_envs,), dtype=np.float32)
         self.buf_infos = [{} for _ in range(self.num_envs)]
@@ -43,6 +44,7 @@ class DummyVecEnv(VecEnv):
         for e in range(self.num_envs):
             obs, self.buf_rews[e], self.buf_dones[e], self.buf_infos[e] = self.envs[e].step(self.actions[e])
             if self.buf_dones[e]:
+                self._save_obs_final(e, obs)
                 obs = self.envs[e].reset()
             self._save_obs(e, obs)
         return (self._obs_from_buf(), np.copy(self.buf_rews), np.copy(self.buf_dones),
@@ -74,12 +76,24 @@ class DummyVecEnv(VecEnv):
             else:
                 self.buf_obs[k][e] = obs[k]
                 
+    def _save_obs_final(self, e, obs):
+        for k in self.keys:
+            if self.hier==True:
+                pass
+            elif k is None:
+                self.final_obs[k][e] = obs
+            else:
+                self.final_obs[k][e] = obs[k]
+                
     def goal(self, obs):
         # does not support keys
-        goal = []
+        goals = []
+        actions = []
         for e in range(self.num_envs):
-            goal.append(self.envs[e].env.get_goal_state(obs[e]))
-        return np.array(goal, np.float32) 
+            goal, action = self.envs[e].env.get_goal_state(obs[e])
+            goals.append(goal)
+            actions.append(action)
+        return np.array(goals, np.float32), np.array(actions, np.int32) 
     
     def action(self, obs):
         acts = []
@@ -94,3 +108,11 @@ class DummyVecEnv(VecEnv):
             return self.buf_obs[None]
         else:
             return self.buf_obs
+        
+    def obs_from_buf_final(self):
+        if self.hier==True:
+            pass
+        elif self.keys==[None]:
+            return self.final_obs[None]
+        else:
+            return self.final_obs

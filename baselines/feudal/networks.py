@@ -60,8 +60,12 @@ class FixedManagerNetwork(object):
                 nsv = tf.nn.l2_normalize(svec, axis=-1)
                 ngv = tf.nn.l2_normalize(gvec, axis=-1)
                 cosine_dist = tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
+                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
+                l2_dist = 1 - (tf.norm(nsv - ngv, axis=-1))
+                l2_dist *= (1. - zero_mask)
+                dist = cosine_dist
                 #rew = tf.Print(rew, [cosine_dist, tf.shape(cosine_dist)])
-                rew += cosine_dist
+                rew += dist
             #print("bcs shape: {}".format(rew.get_shape()))
             
             return rew
@@ -142,7 +146,7 @@ class FeudalNetwork(object):
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
             
-            pout = embed_goal + pi_h2
+            pout = embed_goal * pi_h2
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
             #pout = pi_h2
         

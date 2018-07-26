@@ -48,6 +48,9 @@ class VecNormalize(VecEnvWrapper):
 
     def action(self, obs):
         return self.venv.action(obs)
+    
+    def final_obs(self):
+        return self.venv.obs_from_buf_final()
 
     def _obfilt(self, obs):
         if self.ob_rms:

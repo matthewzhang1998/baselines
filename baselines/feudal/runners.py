@@ -27,9 +27,10 @@ class FeudalRunner(AbstractEnvRunner):
         self.states = np.tile(model.initial_state, (nenv, *np.ones_like(model.initial_state.shape)))
         self.dones = [False for _ in range(nenv)]
         if self.fixed_manager:
-            self.init_goal = env.goal(self.obs)
+            self.init_goal, self.supervised_action = env.goal(self.obs)
         else:
             self.init_goal = [model.init_goal] * nenv
+            self.supervised_action = [0] * nenv
         
         # extra step in the beginning
 #        actions, goal, pi, self.states = self.model.step(self.obs, self.states, self.init_goal)
@@ -44,7 +45,7 @@ class FeudalRunner(AbstractEnvRunner):
         
     def run(self):
         mb_obs, mb_rewards, mb_goals, mb_actions, mb_dones, mb_pi, \
-                    mb_init_goals = [],[],[],[],[],[],[]
+                    mb_init_goals, mb_supervised_actions = [],[],[],[],[],[],[],[]
         epinfos = []
         t_model = 0
         t_run = 0
@@ -68,11 +69,17 @@ class FeudalRunner(AbstractEnvRunner):
             mb_actions.append(actions)
             mb_dones.append(self.dones)
             mb_init_goals.append(self.init_goal)
+            mb_supervised_actions.append(self.supervised_action)
             t_env = time.time()
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)            
+            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
+            if self.dones[0]:
+                temp_obs = np.zeros((self.env.num_envs,) \
+                                    + self.env.observation_space.shape, dtype=np.float32)
+                temp_obs[:] = self.env.final_obs()
+                mb_obs.append(temp_obs.copy())
             t_run += (t_env - t_step)
             if self.fixed_manager:
-                self.init_goal = self.env.goal(self.obs)
+                self.init_goal, self.supervised_action = self.env.goal(self.obs)
             for info in infos:
                 maybeepinfo = info.get('episode')
                 if maybeepinfo: epinfos.append(maybeepinfo)
@@ -86,15 +93,16 @@ class FeudalRunner(AbstractEnvRunner):
         mb_actions = np.asarray(mb_actions)
         mb_dones = np.asarray(mb_dones, dtype=np.bool)
         mb_states = np.asarray(mb_states, dtype=np.float32)
+        mb_supervised_actions = np.asarray(mb_supervised_actions, dtype=np.int32)
         # lose environment parallelism here -> need to fix
         
-        mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals \
+        mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals, mb_supervised_actions \
             = (np.swapaxes(arr,0,1) for arr in
-            (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals))
+            (mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals, mb_goals, mb_supervised_actions))
         print(t_model, t_run)
         
         return mb_obs, mb_rewards, mb_actions, mb_dones, mb_pi, mb_init_goals,\
-                mb_goals, mb_states, epinfos
+                mb_goals, mb_supervised_actions, mb_states, epinfos
         
 class TestRunner(AbstractEnvRunner):
         # to do -> work on making a recurrent version

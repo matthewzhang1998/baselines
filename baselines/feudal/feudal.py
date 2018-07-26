@@ -59,7 +59,7 @@ def sort_by_time(scalars, neplength):
 def invalids_by_goal(goals):
     invalids = []
     for i in range(goals.shape[0]):
-        if np.all(goals[i] == 0):
+        if np.all(goals[i] == 0.0):
             invalids.append(i)
     return invalids
 
@@ -108,7 +108,6 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     mb_advs = np.zeros_like(rews)
     lastgaelam = 0
     nsteps = rews.shape[0]
-    rews = np.concatenate([rews, [np.zeros_like(rews[0])]], axis=0) # add a zero column at end
     nextvalues=vals[-1:,]
     for t in reversed(range(nsteps)):
         if t == nsteps - 1:
@@ -117,7 +116,7 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
         else:
             nextnonterminal = 1.0 - dones[t+1]
             nextvalues = vals[t+1]
-        delta = rews[t+1] + gam * nextvalues * nextnonterminal - vals[t]
+        delta = rews[t] + gam * nextvalues * nextnonterminal - vals[t]
         mb_advs[t] = lastgaelam = delta + gam * lam * nextnonterminal * lastgaelam
         
     mb_returns = mb_advs + vals
@@ -149,7 +148,8 @@ def safe_vstack(arr, dim1):
     
 def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
           mgn, gmax, ginc, lam, nhier, nmb, noe, ngmin, nginc, bmin, bmax, nhist,
-          recurrent, cos, val, fixed_manager, fixed_agent, goal_state, nhidden=64, max_len=100,
+          recurrent, cos, val, fixed_manager, fixed_agent, goal_state, ts,
+          cm, nhidden=64, max_len=100,
           save_interval=0, log_interval=1, test_interval=1, test_env=None,
           logger=None, load_path=None):
     
@@ -163,6 +163,10 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             arr = [cliphigh(t)*(clipinc(t)**i) for i in range(nhier)]
             return np.asarray(arr, dtype=np.float32)
         cliprange = cr    
+    if isinstance(encoef, float):
+        lr = constfn(encoef)
+    else:
+        assert callable(encoef)
 
     neplength = max_len
     ob_space = env.observation_space
@@ -192,12 +196,12 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
               neplength=neplength, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val, cos=cos, fixed_agent=fixed_agent, fixed_network=fixed_manager, goal_state=goal_state,
-              encoef=encoef, vcoef=vcoef, nh=nhidden)
+              encoef=encoef, vcoef=vcoef, nh=nhidden, train_supervised=ts)
     else:
         make_model = lambda : FeudalModel(policy, env, ob_space, ac_space, max_grad=mgn,
               ngoal=ng, recurrent=recurrent, g=gamma, nhist=nh, b=beta, nhier=nhier,
               val=val, cos=cos, fixed_agent=fixed_agent, fixed_network=fixed_manager, goal_state=goal_state,
-              encoef=encoef, vcoef=vcoef, nh=nhidden)
+              encoef=encoef, vcoef=vcoef, nh=nhidden, train_supervised=ts)
     model = make_model()
     if load_path is not None:
         model.load(load_path)
@@ -224,7 +228,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         frac = 1.0 - (update - 1.0) / nupdates
         lrnow = lr(frac)
         cliprangenow = cliprange(frac)
-        obs, rewards, actions, dones, mbpi, init_goals, goals, states, epinfos = runner.run()
+        encoefnow = encoef(frac)
+        print(encoefnow, frac)
+        obs, rewards, actions, dones, mbpi, init_goals, goals, s_actions, states, epinfos = runner.run()
         trun = time.time()
         print(trun - tstart)
         epinfobuf.extend(epinfos)
@@ -257,31 +263,36 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
-                vfs, nlps, inrs = (fl01(arr) for arr in (obs, actions, dones,
+                vfs, nlps, inrs, s_actions, sparse_inrs = (fl01(arr) for arr in (obs[:,:-1], actions, dones,
                                    mbpi, init_goals, goals, states, rewards,
-                                   vfs, nlps, inrs))
+                                   vfs, nlps, inrs, s_actions, sparse_inrs))
             number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
-            mean_inr = np.mean(inrs, axis=0)
-            mean_sparse_inr = np.mean(sparse_inrs, axis=0)
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
                 vfs = np.reshape(np.repeat(vre, nsteps), [nsteps, nhier])
             rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             actions = actions.flatten() #safety
             inds = np.arange(nbatch)
-            invalid_inds = invalids_by_goal(init_goals)
+            invalid_inds = np.array(invalids_by_goal(goals))
+            print(invalid_inds.shape[0])
+            valid_inds = np.setdiff1d(np.arange(init_goals.shape[0]), invalid_inds)
+            mean_inr = np.mean(inrs[valid_inds], axis=0)
+            mean_sparse_inr = np.mean(sparse_inrs[valid_inds], axis=0)
             if nhier == 1:
                 goals = np.zeros((nbatch, 0, model.maxdim))
+            sample = np.random.randint(0, nbatch)
+            #print(decode(obs[sample]), s_actions[sample])
+            #print(rewards[:40,1])
             for _ in range(noe):
                 np.random.shuffle(inds)
                 for start in range(0, nbatch, nbatch_train):
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     mbinds_deleted = [i for i in mbinds if i not in invalid_inds]
-                    slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
+                    slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, s_actions, init_goals))    
                     #slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     #print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
-                    mblossvals.append(model.train(lrnow, cliprangenow, *slices))
+                    mblossvals.append(model.train(lrnow, cliprangenow, encoefnow, *slices))
             
             ttrain = time.time()
             print(ttrain - tstats)
@@ -309,16 +320,16 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     mblossvals.append(model.train(lrnow, cliprangenow, *slices))
 
         if update == 1 or update % test_interval == 0:
-            obs, rewards, actions, dones, mbpi, init_goals, goals, states, kepinfos = test_runner.run()
+            obs, rewards, actions, dones, mbpi, init_goals, goals, s_actions, states, kepinfos = test_runner.run()
             rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
-            trajectories = decode_trajectories(obs[0])
+            trajectories = decode_trajectories(obs[0,:-1])
             test_run_logger.logkv('update_number', update)
             for i in range(len(trajectories)):
                 test_run_logger.logkv('state_{}'.format(i), '{}'.format(trajectories[i]))
                 test_run_logger.logkv('goal_{}'.format(i), '{}'.format(decode(init_goals[0][i])))
-                test_run_logger.logkv('inr_{}'.format(i), '{}'.format(inrs[0][i]))
+                test_run_logger.logkv('inr_{}'.format(i), '{}'.format(inrs[0][i+1]))
                 test_run_logger.logkv('act_{}'.format(i), '{}'.format(actions[0][i]))
-                test_run_logger.logkv('rew_{}'.format(i), '{}'.format(rewards[0][i]))
+                test_run_logger.logkv('s_act_{}'.format(i), '{}'.format(s_actions[0][i]))
             test_run_logger.dumpkvs()
 
         lossvals = np.mean(mblossvals, axis=0)

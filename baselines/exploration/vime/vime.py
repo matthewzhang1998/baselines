@@ -41,7 +41,7 @@ class BayesianFC(object):
                 init_mu=tf.initializers.zeros, 
                 init_rho=tf.constant_initializer(-3),
                 append_vars=False):
-        with tf.variable_scope(name):
+        with tf.variable_scope(name, reuse=tf.AUTO_REUSE):
             w_mu = tf.get_variable("w_mu", shape=[num_input, num_output],
                                      dtype=tf.float32, initializer=init_mu)
             w_rho = tf.get_variable("w_rho", shape=[num_input, num_output],
