@@ -50,22 +50,23 @@ class FixedManagerNetwork(object):
         
         def bcs(state, spad, gpad, nhist, axis=0):
             rew = tf.fill([nbatch], 0.0)
-            for t in range(nhist):
-                if axis==1:                    
-                    svec = state - spad[:,nhist-t-1:-(t+1),:]
-                    gvec = gpad[:,nhist-t-1:-(t+1),:]
-                else:
-                    svec = state - spad[nhist-t-1:-(t+1),:]
-                    gvec = gpad[nhist-t-1:-(t+1),:]
-                nsv = tf.nn.l2_normalize(svec, axis=-1)
-                ngv = tf.nn.l2_normalize(gvec, axis=-1)
-                cosine_dist = tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
-                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
-                l2_dist = 1 - (tf.norm(nsv - ngv, axis=-1))
-                l2_dist *= (1. - zero_mask)
-                dist = cosine_dist
-                #rew = tf.Print(rew, [cosine_dist, tf.shape(cosine_dist)])
-                rew += dist
+            #for t in range(nhist):
+            t = nhist - 1
+            if axis==1:                    
+                svec = state - spad[:,nhist-t-1:-(t+1),:]
+                gvec = gpad[:,nhist-t-1:-(t+1),:]
+            else:
+                svec = state - spad[nhist-t-1:-(t+1),:]
+                gvec = gpad[nhist-t-1:-(t+1),:]
+            nsv = tf.nn.l2_normalize(svec, axis=-1)
+            ngv = tf.nn.l2_normalize(gvec, axis=-1)
+            cosine_dist = tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
+            zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
+            l2_dist = 1 - (tf.norm(nsv - ngv, axis=-1))
+            l2_dist *= (1. - zero_mask)
+            dist = cosine_dist
+            #rew = tf.Print(rew, [cosine_dist, tf.shape(cosine_dist)])
+            rew += dist
             #print("bcs shape: {}".format(rew.get_shape()))
             
             return rew
@@ -98,12 +99,12 @@ class FixedManagerNetwork(object):
             pad = tf.constant([[0,0],[nhist,0], [0,0]])
             spad = tf.pad(self.state, pad, "CONSTANT")
             gpad = tf.pad(self.aout, pad, "CONSTANT")
-            self.inr = 1/nhist * tf.stop_gradient(bcs(self.state, spad, gpad, nhist, axis=1))        
+            self.inr = tf.stop_gradient(bcs(self.state, spad, gpad, nhist, axis=1))        
         else:
             pad = tf.constant([[nhist,0], [0,0]])
             spad = tf.pad(self.state, pad, "CONSTANT")
             gpad = tf.pad(self.aout, pad, "CONSTANT")
-            self.inr = 1/nhist * tf.stop_gradient(bcs(self.state, spad, gpad, nhist, axis=0))
+            self.inr = tf.stop_gradient(bcs(self.state, spad, gpad, nhist, axis=0))
             self.sparse_inr = 1/nhist * (sparse_bcs(self.state, spad, gpad, nhist, axis=0))
         self.fvec = tf.zeros_like(self.state)
         self.traj_sim = tf.reduce_sum(tf.zeros_like(self.state), axis=-1)
