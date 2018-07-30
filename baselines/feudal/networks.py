@@ -170,6 +170,24 @@ class FeudalNetwork(object):
                 rew += tf.reduce_sum(tf.multiply(nsv,ngv), axis=-1)
             return rew
         
+        def sparse_bcs(state, spad, gpad, nhist, axis=0):
+            rew = tf.fill([nbatch], 0.0)
+            for t in range(nhist):
+                if axis==1:                    
+                    svec = state - spad[:,nhist-t-1:-(t+1),:]
+                    gvec = gpad[:,nhist-t-1:-(t+1),:]
+                else:
+                    svec = state - spad[nhist-t-1:-(t+1),:]
+                    gvec = gpad[nhist-t-1:-(t+1),:]
+                delta_gs = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
+                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
+                delta_gs *= (1.-zero_mask)
+                #rew = tf.Print(rew, [delta_gs, tf.shape(delta_gs)])
+                rew += delta_gs
+                #rew += tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
+            #print("sparse_bcs shape: {}".format(rew.get_shape()))
+            return rew
+        
         def fcs(fvec, gvec, nhist):
             nfv = tf.nn.l2_normalize(fvec, axis=-1)
             ngv = tf.nn.l2_normalize(gvec, axis=-1)

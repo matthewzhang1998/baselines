@@ -116,7 +116,7 @@ def train(env_id,
     elif enfnx == 'osc':
         encoef_fnx = lambda t: encoef * (np.cos(tsteps/nsteps * 0.01 * np.pi * t)**2)
     elif enfnx == 'exp':
-        encoef_fnx = lambda t: encoef * np.exp(2.5 * (t-1))
+        encoef_fnx = lambda t: encoef * np.exp(np.log(100 * encoef) * (t-1))
     elif enfnx == 'cst':
         encoef_fnx = lambda t: encoef
     policy_params = {'r':recurrent}

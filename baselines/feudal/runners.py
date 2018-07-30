@@ -26,7 +26,7 @@ class FeudalRunner(AbstractEnvRunner):
         self.nsteps = nsteps
         self.states = np.tile(model.initial_state, (nenv, *np.ones_like(model.initial_state.shape)))
         self.dones = [False for _ in range(nenv)]
-        if self.fixed_manager:
+        if self.fixed_manager or self.fixed_agent:
             self.init_goal, self.supervised_action = env.goal(self.obs)
         else:
             self.init_goal = [model.init_goal] * nenv
@@ -56,7 +56,7 @@ class FeudalRunner(AbstractEnvRunner):
             t_step = time.time()
             t_model += (t_step - t_start)
             if self.fixed_agent:
-                actions = self.env.action(self.obs)
+                actions = self.supervised_action
             if self.recurrent:
                 self.states = self.states[0]
             mb_obs.append(self.obs.copy())
@@ -78,7 +78,7 @@ class FeudalRunner(AbstractEnvRunner):
                 temp_obs[:] = self.env.final_obs()
                 mb_obs.append(temp_obs.copy())
             t_run += (t_env - t_step)
-            if self.fixed_manager:
+            if self.fixed_manager or self.fixed_agent:
                 self.init_goal, self.supervised_action = self.env.goal(self.obs)
             for info in infos:
                 maybeepinfo = info.get('episode')
