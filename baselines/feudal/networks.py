@@ -20,7 +20,7 @@ class FixedActorNetwork(object):
     '''
     def __init__(self, mgoal, state, pstate, nh, recurrent, *args, **kwargs):
         self.dummy_actions = tf.zeros_like(state, dtype=tf.float32)
-        self.pd = ConstantPd(self.dummy_actions)
+        self.pd = ConstantPd(self.dummy_actions, collapse_nlp=0)
         self.pi = self.dummy_actions # this is a dummy variable
         
         self.aout = tf.reduce_sum(self.pd.sample(), axis=-1)
@@ -46,6 +46,7 @@ class FixedManagerNetwork(object):
         self.pd = ConstantPd(em_h2 - state)
         self.aout = self.pd.sample()
         self.nlp = self.pd.neglogp(self.aout)
+        self.train_nlp = self.nlp
         self.vf = tf.constant([0.0])
         
         def bcs(state, spad, gpad, nhist, axis=0):
@@ -81,7 +82,8 @@ class FixedManagerNetwork(object):
                     svec = state - spad[nhist-t-1:-(t+1),:]
                     gvec = gpad[nhist-t-1:-(t+1),:]
                 delta_gs = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(svec, gvec)), axis=-1), 1.))
-                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
+                zero_mask = tf.to_float(tf.equal(tf.reduce_mean(
+                        tf.to_float(tf.equal(tf.zeros_like(gvec), gvec)), axis=-1), 1.))
                 delta_gs *= (1.-zero_mask)
                 #rew = tf.Print(rew, [delta_gs, tf.shape(delta_gs)])
                 rew += delta_gs
@@ -131,7 +133,7 @@ class FeudalNetwork(object):
         self.mgoal = mgoal[:,:nin]
         self.state = state
         #state = tf.concat([self.mgoal, self.state], axis=-1)
-        nph = nh # policy hidden layer size
+        nph = nh
         self.manager = manager
         self.name = name
         self.initial_state = None
@@ -140,14 +142,15 @@ class FeudalNetwork(object):
         self.pdtype = pdtype
         
         with tf.variable_scope("level" + str(self.name)):
-            em_h2 = activ(fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2)))
+            em_h2 = fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2))
             embed_goal = fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2))
             pi_h1 = activ(fc(state, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
-            pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nph, init_scale=np.sqrt(2)))
+            pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nh, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
             
             pout = embed_goal * pi_h2
+            
             vout = tf.nn.tanh(fc(vf_h2, 'vf', 1))[:,0]
             #pout = pi_h2
         
@@ -199,12 +202,14 @@ class FeudalNetwork(object):
             pad = tf.constant([[nhist,0], [0,0]])
             spad = tf.pad(em_h2, pad, "CONSTANT")
             gpad = tf.pad(aout, pad, "CONSTANT")
+            
             self.inr = 1/nhist * tf.stop_gradient(bcs(em_h2, spad, gpad, nhist))
             
             lstate = em_h2[-1,:]
             rep = tf.reshape(tf.tile(lstate, tf.constant([nhist])),(nhist,nout))
             spadf = tf.concat([em_h2, rep], axis=0)
             self.fvec = spadf[nhist:,] - em_h2
+            self.train_nlp = self.pd.neglogp(tf.nn.l2_normalize(tf.stop_gradient(self.fvec), axis=-1))
             self.traj_sim = fcs(self.fvec, aout, nhist)
            
 class RecurrentFeudalNetwork(object):

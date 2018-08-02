@@ -70,7 +70,7 @@ class FeudalModel(object):
         self.networks=[] # network array
         self.nhier=nhier # set hierarchy
         beta, gam, tsim, val, nlp, nstate=[],[],[],[],[],[] # hierarchically dependent parameters
-        self.init_goal = np.zeros(shape=(self.maxdim)) # 
+        self.init_goal = np.ones(shape=(self.maxdim)) # 
         self.initial_state = np.zeros(shape=(nhier, nh*2))
         nfeat = ob_space.shape
         
@@ -130,23 +130,22 @@ class FeudalModel(object):
                 goal.append(tf.pad(self.networks[t].aout,
                                 tf.constant([[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
                                 mode='CONSTANT'))
-            nlp.append(self.networks[t].pd.neglogp(self.OLDGOALS[:,t,:ngoal(nhier-t-1)]))
+            #nlp.append(self.networks[t].pd.neglogp(self.OLDGOALS[:,t,:ngoal(nhier-t-1)]))
+            nlp.append(self.networks[t].train_nlp)
             
             tsim.append(1-self.networks[t].traj_sim)
             inr.append(self.networks[t].inr)
-            sparse_inr.append(self.networks[t].sparse_inr)
+            if fixed_network:
+                sparse_inr.append(self.networks[t].sparse_inr)
 
             nstate.append(self.networks[t].nstate)
-            if cos:
-                adv = self.ADV[:,t] * tsim[t]
-                ploss += tf.reduce_mean(-adv)
-            else:
-                adv = self.ADV[:,t] #* tsim[t]
+            adv = self.ADV[:,t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
-                ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
-                pl1 = -adv * ratio
-                pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
-                ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
+            ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
+            pl1 = -adv * ratio
+            pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
+            
+            ploss += tf.exp(self.networks[t].train_nlp)
             if val:
                 val.append(self.networks[t].vf)
                 vclip = self.OLDVALUES[:,t] + tf.clip_by_value(val[t]-self.OLDVALUES[:,t],
@@ -222,10 +221,6 @@ class FeudalModel(object):
         self.inrmean = tf.reduce_mean(self.inr)
         self.loss = self.ploss + self.vloss * vcoef - self.entropy * self.ENCOEF
         self.loss_names = ["entropy", "policy loss", "value loss", "approxkl", "clipfrac"]
-        
-        with tf.variable_scope("level0/pi", reuse=True):
-            self.weight_1 = tf.reduce_mean(tf.get_variable("w"))
-            self.bias_1 = tf.reduce_mean(tf.get_variable("b"))
             
         optimizer = tf.train.AdamOptimizer(self.LR)
         if max_grad > 0:
@@ -236,7 +231,8 @@ class FeudalModel(object):
             self._trainer = optimizer.apply_gradients(grads)
         else:
             self._trainer = optimizer.minimize(self.loss)
-        self._supervised_trainer = optimizer.minimize(self.supervised_loss)
+        if self.train_supervised:
+            self._supervised_trainer = optimizer.minimize(self.supervised_loss)
         tf.global_variables_initializer().run(session=self.sess)
         
     def train(self, lr,
@@ -321,6 +317,7 @@ class FeudalModel(object):
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
         else: goal = init_goal
+        init_goal = np.array(init_goal)
         if init_goal.shape[0] != obs.shape[0]:
             goal=np.tile(goal, (obs.shape[0],1))
         feed={self.STATES:state, self.OBS:obs, self.INITGOALS:goal}
@@ -465,10 +462,7 @@ class RecurrentFeudalModel(object):
             inr.append(self.networks[t].inr)
             sparse_inr.append(self.networks[t].sparse_inr)
             nstate.append(self.networks[t].nstate)
-            if cos:
-                adv = self.ADV[:,:,t] * tsim[t]
-            else:
-                adv = self.ADV[:,:,t] #* tsim[t]
+            adv = self.ADV[:,:,t] #* tsim[t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,:,t] - nlp[t])
             pl1 = -adv * ratio

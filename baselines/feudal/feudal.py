@@ -263,7 +263,7 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
-                vfs, nlps, inrs, s_actions, sparse_inrs = (fl01(arr) for arr in (obs[:,:-1], actions, dones,
+                vfs, nlps, inrs, s_actions, sparse_inrs = (fl01(arr) for arr in (obs, actions, dones,
                                    mbpi, init_goals, goals, states, rewards,
                                    vfs, nlps, inrs, s_actions, sparse_inrs))
             number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
@@ -344,7 +344,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 logger.logkv("exact_matches", number_of_correct)
                 for i in range(1, nhier):
                     logger.logkv('intrinsic_reward_{}'.format(i), mean_inr[i] * neplength/(neplength - 1))
-                    logger.logkv('intrinsic_reward_sparse_{}'.format(i), mean_sparse_inr[i] * neplength/(neplength - 1))
+                    if fixed_manager:
+                        logger.logkv('intrinsic_reward_sparse_{}'.format(i), mean_sparse_inr[i] * neplength/(neplength - 1))
                 logger.logkv('eprewmean', safemean([epinfo['r'] for epinfo in epinfobuf]))
                 logger.logkv('eplenmean', safemean([epinfo['l'] for epinfo in epinfobuf]))
                 logger.logkv('time_elapsed', tnow - tfirststart)

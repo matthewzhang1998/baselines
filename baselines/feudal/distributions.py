@@ -87,8 +87,8 @@ class DiagGaussianPdType(PdType):
 
     def pdfromlatent(self, latent_vector, init_scale=1.0, init_bias=0.0):
         mean = fc(latent_vector, 'pi', self.size, init_scale=init_scale, init_bias=init_bias, r=self.r)
-        logstd = tf.get_variable(name='logstd', shape=[1, self.size], initializer=tf.zeros_initializer())
-        pdparam = tf.concat([mean, mean * 0.0 + logstd], axis=-1)
+        logstd = tf.get_variable(name='logstd', shape=[1, self.size], initializer=tf.constant_initializer(-1.))
+        pdparam = tf.concat([mean, tf.zeros_like(mean) + logstd], axis=-1)
         return self.pdfromflat(pdparam), mean
 
     def param_shape(self):
@@ -110,38 +110,19 @@ class BernoulliPdType(PdType):
     def sample_dtype(self):
         return tf.int32
 
-# WRONG SECOND DERIVATIVES
-# class CategoricalPd(Pd):
-#     def __init__(self, logits):
-#         self.logits = logits
-#         self.ps = tf.nn.softmax(logits)
-#     @classmethod
-#     def fromflat(cls, flat):
-#         return cls(flat)
-#     def flatparam(self):
-#         return self.logits
-#     def mode(self):
-#         return U.argmax(self.logits, axis=-1)
-#     def logp(self, x):
-#         return -tf.nn.sparse_softmax_cross_entropy_with_logits(self.logits, x)
-#     def kl(self, other):
-#         return tf.nn.softmax_cross_entropy_with_logits(other.logits, self.ps) \
-#                 - tf.nn.softmax_cross_entropy_with_logits(self.logits, self.ps)
-#     def entropy(self):
-#         return tf.nn.softmax_cross_entropy_with_logits(self.logits, self.ps)
-#     def sample(self):
-#         u = tf.random_uniform(tf.shape(self.logits))
-#         return U.argmax(self.logits - tf.log(-tf.log(u)), axis=-1)
-
 class ConstantPd(Pd):
-    def __init__(self, logits):
+    def __init__(self, logits, collapse_nlp=1):
         self.logits = logits
+        self.collapse_nlp = collapse_nlp
     def flatparam(self):
         return self.logits
     def mode(self):
         pass
     def neglogp(self, x):
-        return tf.reduce_sum(tf.zeros_like(x, dtype=tf.float32), axis=-1)
+        if self.collapse_nlp:
+            return tf.reduce_sum(tf.zeros_like(x, dtype=tf.float32), axis=-1)
+        else:
+            return tf.zeros_like(x, dtype=tf.float32)
     def kl(self, other):
         pass
     def entropy(self):
