@@ -109,6 +109,7 @@ def mcret(actions, rews, dones, vals, lam=0.95, gam=0.99):
     lastgaelam = 0
     nsteps = rews.shape[0]
     nextvalues=vals[-1:,]
+    print(nsteps)
     for t in reversed(range(nsteps)):
         if t == nsteps - 1:
             nextnonterminal = 0
@@ -261,16 +262,14 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 time_rew_logger.dumpkvs()
             rewards, vfs, nlps, inrs, fvecs, sparse_inrs = \
                 map(np.asarray,(rewards, vfs, nlps, inrs, fvecs, sparse_inrs))
-            print(fvecs.shape)
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
                 vfs, nlps, inrs, fvecs, s_actions, sparse_inrs = \
                                 (fl01(arr) for arr in (obs, actions, dones,
                                    mbpi, init_goals, goals, states, rewards,
-                                   vfs, nlps, inrs, fvecs, s_actions, sparse_inrs))
-                                
-            print(fvecs.shape)
+                                   vfs, nlps, inrs[:,1:,:], fvecs, s_actions, sparse_inrs))
+                              
             number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
@@ -278,15 +277,17 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             rewards, advs = mcret(actions, rewards, dones, vfs, lam=lam, gam=model.gam)
             actions = actions.flatten() #safety
             inds = np.arange(nbatch)
-            invalid_inds = np.array(invalids_by_goal(goals))
-            print(invalid_inds.shape[0])
-            valid_inds = np.setdiff1d(np.arange(init_goals.shape[0]), invalid_inds)
+            #invalid_inds = np.array(invalids_by_goal(goals))
+            #print(invalid_inds.shape[0])
+            #valid_inds = np.setdiff1d(np.arange(init_goals.shape[0]), invalid_inds)
+            invalid_inds = []
+            valid_inds = inds
             mean_inr = np.mean(inrs[valid_inds], axis=0)
+            print(mean_inr.shape)
             mean_sparse_inr = np.mean(sparse_inrs[valid_inds], axis=0)
             if nhier == 1:
                 goals = np.zeros((nbatch, 0, model.maxdim))
                 
-            print(np.mean(inrs[:,-1], axis=-1))
             sample = np.random.randint(0, nbatch)
             #print(decode(obs[sample]), s_actions[sample])
             #print(rewards[:40,1])

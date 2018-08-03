@@ -22,6 +22,7 @@ def make_program_env(env_id, seed, hier=True, curiosity=True, visualize=True, mo
     env.set_curiosity(curiosity, model)
     env.set_hier(hier)
     env.set_visualize(visualize)
+
     env = Monitor(env, logger.get_dir())
     env.seed(seed)
     return env

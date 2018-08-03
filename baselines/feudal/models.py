@@ -144,7 +144,6 @@ class FeudalModel(object):
 
             nstate.append(self.networks[t].nstate)
             adv = self.ADV[:,t]
-            #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
             ratio = tf.exp(self.OLDNLPS[:,t] - self.networks[t].loss_nlp)
             pl1 = -adv * ratio
             pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])

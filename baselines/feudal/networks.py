@@ -145,7 +145,7 @@ class FeudalNetwork(object):
         with tf.variable_scope("level" + str(self.name)):
             em_h2 = fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2))
             embed_goal = fc(self.mgoal, 'embed', nh=nh, init_scale=np.sqrt(2))
-            pi_h1 = activ(fc(state, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
+            pi_h1 = activ(fc(em_h2, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
             pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nh, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
             vf_h2 = activ(fc(vf_h1, 'vf_fc2', nh=nh, init_scale=np.sqrt(2)))
