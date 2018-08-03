@@ -69,7 +69,7 @@ class FeudalModel(object):
         self.val=val
         self.networks=[] # network array
         self.nhier=nhier # set hierarchy
-        beta, gam, tsim, val, nlp, nstate=[],[],[],[],[],[] # hierarchically dependent parameters
+        beta, gam, fvecs, val, nlp, nstate=[],[],[],[],[],[] # hierarchically dependent parameters
         self.init_goal = np.ones(shape=(self.maxdim)) # 
         self.initial_state = np.zeros(shape=(nhier, nh*2))
         nfeat = ob_space.shape
@@ -84,6 +84,7 @@ class FeudalModel(object):
         self.OLDVALUES=tf.placeholder(dtype=tf.float32, shape=(None, nhier))
         self.OLDNLPS=tf.placeholder(dtype=tf.float32, shape=(None,nhier))
         self.OLDGOALS=tf.placeholder(dtype=tf.float32, shape=(None, nhier-1, self.maxdim))
+        self.FORWARD_VECS=tf.placeholder(dtype=tf.float32, shape=(None, nhier-1, self.maxdim))
         self.CLIPRANGE=tf.placeholder(dtype=tf.float32, shape=(nhier))
         self.LR=tf.placeholder(dtype=tf.float32)
         self.ENCOEF=tf.placeholder(dtype=tf.float32)
@@ -114,6 +115,7 @@ class FeudalModel(object):
                                               nbatch=nbatch))
             else:
                 self.networks.append(self.manager_net(mgoal=goal[t][:,:ngoal(nhier-t)],
+                                              feed_fvec=self.FORWARD_VECS[:,t,:ngoal(nhier-t-1)],
                                               state=em_h1,
                                               pstate=self.STATES[:,t,:],
                                               nhist=nhist(nhier-t-1),
@@ -133,7 +135,9 @@ class FeudalModel(object):
             #nlp.append(self.networks[t].pd.neglogp(self.OLDGOALS[:,t,:ngoal(nhier-t-1)]))
             nlp.append(self.networks[t].train_nlp)
             
-            tsim.append(1-self.networks[t].traj_sim)
+            fvecs.append(tf.pad(self.networks[t].fvec,
+                                tf.constant([[0,0],[0,self.maxdim-ngoal(nhier-t-1)]]),
+                                mode='CONSTANT'))
             inr.append(self.networks[t].inr)
             if fixed_network:
                 sparse_inr.append(self.networks[t].sparse_inr)
@@ -141,11 +145,10 @@ class FeudalModel(object):
             nstate.append(self.networks[t].nstate)
             adv = self.ADV[:,t]
             #tmax = tf.reduce_max(tf.exp(self.OLDNLPS[:,t] - nlp[t]))
-            ratio = tf.exp(self.OLDNLPS[:,t] - nlp[t])
+            ratio = tf.exp(self.OLDNLPS[:,t] - self.networks[t].loss_nlp)
             pl1 = -adv * ratio
             pl2 = -adv * tf.clip_by_value(ratio, 1.0 - self.CLIPRANGE[t], 1.0 + self.CLIPRANGE[t])
-            
-            ploss += tf.exp(self.networks[t].train_nlp)
+            ploss += tf.reduce_mean(tf.maximum(pl1, pl2))
             if val:
                 val.append(self.networks[t].vf)
                 vclip = self.OLDVALUES[:,t] + tf.clip_by_value(val[t]-self.OLDVALUES[:,t],
@@ -196,7 +199,6 @@ class FeudalModel(object):
         
         entropy += tf.reduce_mean(self.networks[nhier-1].pd.entropy())
         
-        
         if nhier > 1:  
             self.goals = tf.transpose(tf.stack(goal[1:]),[1,0,2])
         else:
@@ -208,6 +210,10 @@ class FeudalModel(object):
         self.inr = tf.transpose(tf.stack(inr))
         self.sparse_inr = tf.transpose(tf.stack(sparse_inr))
         self.nlp = tf.transpose(tf.stack(nlp))
+        if nhier > 1:  
+            self.fvecs = tf.transpose(tf.stack(fvecs),[1,0,2])
+        else:
+            self.fvecs=tf.zeros(shape=[nbatch, nhier-1, self.maxdim])
         if val:
             self.vf = tf.transpose(tf.stack(val))
         else:
@@ -242,6 +248,7 @@ class FeudalModel(object):
               acts, rews,
               advs,
               goals, nlps,
+              vecs,
               vfs, states,
               supervised_actions,
               init_goal=None):
@@ -268,10 +275,9 @@ class FeudalModel(object):
               self.OLDGOALS:goals,
               self.SUPERVISED_ACTIONS:supervised_actions,
               self.OLDNLPS:nlps,
+              self.FORWARD_VECS: vecs,
               self.OLDVALUES:vfs}
         
-        #weights, bias = self.sess.run([self.weight_1, self.bias_1], feed)
-        #print(weights, bias)
         #_, test_nlps = self.ifv(obs, acts, goals, states[0], init_goal)
         if self.train_supervised:
             return self.sess.run([self.entropy,
@@ -290,7 +296,7 @@ class FeudalModel(object):
                               self._trainer], feed)[:-1]
     
     def av(self, obs, acts, rews, dones, goals, states, init_goal=None):
-        vadvs, vvfs, vnlps, vinr, sparse_vinr =[],[],[],[], []
+        vadvs, vvfs, vnlps, vinr, vvecs, sparse_vinr =[],[],[],[],[],[]
         if init_goal is None:
             init_goal = [None] * len(obs)
             
@@ -306,13 +312,15 @@ class FeudalModel(object):
             inr=self.rewards(ob, state, init_goal=rew_feed_goal)
             sparse_inr=self.sparse_rewards(ob, state, init_goal=rew_feed_goal)
             mbrews=trews*(1-self.beta) + inr[1:,]*(self.beta)
-            mbvfs, mbnlps =self.ifv(ob[:-1,], act, goal, state, init_goal=feed_goal)
+            mbvfs, mbnlps = self.ifv(ob[:-1], act, goal, state, init_goal=feed_goal)
+            mbvecs = self.vecs(ob)
             vadvs.append(mbrews)
             vvfs.append(mbvfs)
             vnlps.append(mbnlps)
             vinr.append(inr)
+            vvecs.append(mbvecs[:-1])
             sparse_vinr.append(sparse_inr)
-        return vadvs, vvfs, vnlps, vinr, sparse_vinr
+        return vadvs, vvfs, vnlps, vinr, vvecs, sparse_vinr
     
     def step(self, obs, state, init_goal=None):
         if init_goal is None: goal = self.init_goal
@@ -327,6 +335,10 @@ class FeudalModel(object):
         feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:init_goal}
         rew = self.sess.run([self.inr], feed)[0]
         return rew
+    
+    def vecs(self, obs):
+        feed = {self.OBS:obs}
+        return self.sess.run([self.fvecs], feed)[0]
 
     def sparse_rewards(self, obs, state, init_goal=None):
         feed={self.STATES:[state], self.OBS:obs, self.INITGOALS:init_goal}
@@ -588,6 +600,7 @@ class RecurrentFeudalModel(object):
               self.OLDNLPS:nlps,
               self.SUPERVISED_ACTIONS:supervised_actions,
               self.OLDVALUES:vfs}
+        
         if self.train_supervised:
             return self.sess.run([self.entropy,
                               self.ploss,

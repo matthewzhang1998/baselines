@@ -237,7 +237,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
         mblossvals = []
         
         if not recurrent:
-            rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            rewards, vfs, nlps, inrs, fvecs, sparse_inrs = \
+            model.av(obs, actions, rewards, dones, goals, states, init_goals)
             #print(inrs)
             #print("num of frames: {}".format(len(inrs)))
             #print("num of frames: {}".format(len(sparse_inrs)))
@@ -258,14 +259,18 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                 for index,i in enumerate(inrs_per_timestep.items()):
                     time_rew_logger.logkv("{}".format(index), i[1][1])
                 time_rew_logger.dumpkvs()
-            rewards, vfs, nlps, inrs, sparse_inrs = map(np.asarray,(rewards, vfs, nlps, inrs, sparse_inrs))
-            rewards, vfs, nlps, inrs = map(np.asarray,(rewards, vfs, nlps, inrs))
+            rewards, vfs, nlps, inrs, fvecs, sparse_inrs = \
+                map(np.asarray,(rewards, vfs, nlps, inrs, fvecs, sparse_inrs))
+            print(fvecs.shape)
             states = states[:,np.newaxis,:]
             states = np.tile(states, (1, neplength, *np.ones_like(states.shape[2:])))
             obs, actions, dones, mbpi, init_goals, goals, states, rewards, \
-                vfs, nlps, inrs, s_actions, sparse_inrs = (fl01(arr) for arr in (obs, actions, dones,
+                vfs, nlps, inrs, fvecs, s_actions, sparse_inrs = \
+                                (fl01(arr) for arr in (obs, actions, dones,
                                    mbpi, init_goals, goals, states, rewards,
-                                   vfs, nlps, inrs, s_actions, sparse_inrs))
+                                   vfs, nlps, inrs, fvecs, s_actions, sparse_inrs))
+                                
+            print(fvecs.shape)
             number_of_correct = np.sum(np.where(inrs[:,-1] > 0.99, True, False))
             if not val:
                 vre = vre * val_temp + np.mean(rewards, axis=0) * (1-val_temp)
@@ -280,6 +285,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
             mean_sparse_inr = np.mean(sparse_inrs[valid_inds], axis=0)
             if nhier == 1:
                 goals = np.zeros((nbatch, 0, model.maxdim))
+                
+            print(np.mean(inrs[:,-1], axis=-1))
             sample = np.random.randint(0, nbatch)
             #print(decode(obs[sample]), s_actions[sample])
             #print(rewards[:40,1])
@@ -289,7 +296,9 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
                     end = start + nbatch_train
                     mbinds = inds[start:end]
                     mbinds_deleted = [i for i in mbinds if i not in invalid_inds]
-                    slices = (arr[mbinds_deleted] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, s_actions, init_goals))    
+                    slices = (arr[mbinds_deleted] for arr in (
+                            obs, actions, rewards, advs, goals, nlps,
+                            fvecs, vfs, states, s_actions, init_goals))    
                     #slices = (arr[mbinds] for arr in (obs, actions, rewards, advs, goals, nlps, vfs, states, init_goals))    
                     #print("lrnow: {}, clipnow: {}".format(lrnow, cliprangenow))
                     mblossvals.append(model.train(lrnow, cliprangenow, encoefnow, *slices))
@@ -321,7 +330,8 @@ def learn(*, policy, env, tsteps, nsteps, encoef, lr, cliphigh, clipinc, vcoef,
 
         if update == 1 or update % test_interval == 0:
             obs, rewards, actions, dones, mbpi, init_goals, goals, s_actions, states, kepinfos = test_runner.run()
-            rewards, vfs, nlps, inrs, sparse_inrs = model.av(obs, actions, rewards, dones, goals, states, init_goals)
+            rewards, vfs, nlps, inrs, vecs, sparse_inrs = \
+                model.av(obs, actions, rewards, dones, goals, states, init_goals)
             trajectories = decode_trajectories(obs[0,:-1])
             test_run_logger.logkv('update_number', update)
             for i in range(len(trajectories)):

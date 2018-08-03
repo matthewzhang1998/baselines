@@ -122,7 +122,8 @@ class FeudalNetwork(object):
     Feudal Agent without recurrency
     '''
     def __init__(self, mgoal, state, pstate, pdtype=None, nhist=4, nin=32, ngoal=16, recurrent=0,
-                 nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1e3, val=True):
+                 nembed=8, manager=False, nh=64, activ=tf.nn.relu, name=1, nbatch=1e3,
+                 val=True, feed_fvec=None):
         '''
         INPUTS:
             mgoal - goal tensor of supervisor
@@ -143,7 +144,7 @@ class FeudalNetwork(object):
         
         with tf.variable_scope("level" + str(self.name)):
             em_h2 = fc(state, 'em_fc2', nh=nout, init_scale=np.sqrt(2))
-            embed_goal = fc(self.mgoal, 'embed', nh=nph, init_scale=np.sqrt(2))
+            embed_goal = fc(self.mgoal, 'embed', nh=nh, init_scale=np.sqrt(2))
             pi_h1 = activ(fc(state, 'pi_fc1', nh=nh, init_scale=np.sqrt(2)))
             pi_h2 = activ(fc(pi_h1, 'pi_fc2', nh=nh, init_scale=np.sqrt(2)))
             vf_h1 = activ(fc(state, 'vf_fc1', nh=nh, init_scale=np.sqrt(2)))
@@ -210,6 +211,7 @@ class FeudalNetwork(object):
             spadf = tf.concat([em_h2, rep], axis=0)
             self.fvec = spadf[nhist:,] - em_h2
             self.train_nlp = self.pd.neglogp(tf.nn.l2_normalize(tf.stop_gradient(self.fvec), axis=-1))
+            self.loss_nlp = self.pd.neglogp(tf.nn.l2_normalize(tf.stop_gradient(feed_fvec), axis=-1))
             self.traj_sim = fcs(self.fvec, aout, nhist)
            
 class RecurrentFeudalNetwork(object):

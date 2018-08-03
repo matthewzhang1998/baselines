@@ -30,12 +30,14 @@ def fc(x, scope, nh, *, init_scale=1.0, init_bias=0.0, r=False):
         if r:
             nin = x.get_shape()[-1].value
             w = tf.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
+            print(w)
             b = tf.get_variable("b", [nh], initializer=tf.constant_initializer(init_bias))
             return tf.einsum('ijk,kl->ijl', x, w)
         
         else:
             nin = x.get_shape()[-1].value
             w = tf.get_variable("w", [nin, nh], initializer=ortho_init(init_scale))
+            print(w)
             b = tf.get_variable("b", [nh], initializer=tf.constant_initializer(init_bias))
             return tf.matmul(x, w)+b
         
